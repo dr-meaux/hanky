@@ -11,7 +11,10 @@ websocket connection, in either of two modes:
   teammate is still standing, and again at the start of every wave. The run
   ends when the whole team is down at once.
 - **VERSUS** — three lives each, friendly fire very much on. Bullets sting,
-  slams send you flying, hearts still heal. Last block standing wins.
+  slams send you flying, hearts still heal. Last block standing wins. Land two
+  slams on the same block in a row and you get a moment to gloat: they are
+  pinned where they stand while you line up behind them and go to town. Worth
+  150 points, and nobody can touch either of you until it is over.
 
 ## Playing together
 

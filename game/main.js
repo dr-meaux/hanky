@@ -22,7 +22,7 @@ let menu = S.createWorld('coop');          /* empty arena behind the menus */
 
 let statics = { plats: menu.plats, bg: menu.bg };
 let snaps = [], renderTime = 0, roster = {};
-let pred = null, predWorld = null, predTele = -1;
+let pred = null, predWorld = null, predTele = -1, predLock = false;
 let pendEdges = { jump: false, a1: false, a2: false }, sendAcc = 0;
 let lobby = { players: [], mode: 'coop', state: 'lobby', room: '' };
 let lastResult = null, waitMsg = '';
@@ -114,7 +114,7 @@ Net.on('welcome', m => {
   statics = { plats: m.plats, bg: m.bg };
   roster = {};
   for (const p of m.players) roster[p.id] = p;
-  snaps = []; renderTime = 0; pred = null; predTele = -1;
+  snaps = []; renderTime = 0; pred = null; predTele = -1; predLock = false;
   predWorld = { plats: m.plats, WW: S.WW, WH: S.WH, bullets: [], fx: [], players: [], mode: m.mode };
   waitMsg = '';
   const mine = m.players.find(p => p.id === Net.id);
@@ -162,14 +162,16 @@ function initPred(sp) {
 function reconcile(d) {
   const sp = d.players.find(p => p.id === Net.id);
   if (!sp) { pred = null; return; }
-  if (!pred || sp.teleport !== predTele || sp.dead || sp.out) { initPred(sp); predTele = sp.teleport; return; }
+  /* pinned or busy behind someone: the server owns you until it lets go */
+  predLock = sp.taunt > 0 || sp.held > 0;
+  if (!pred || sp.teleport !== predTele || sp.dead || sp.out || predLock) { initPred(sp); predTele = sp.teleport; return; }
   const dx = sp.x - pred.x, dy = sp.y - pred.y, err = Math.hypot(dx, dy);
   if (err > 140) { pred.x = sp.x; pred.y = sp.y; pred.vx = sp.vx; pred.vy = 0; }
   else if (err > 16) { pred.x += dx * 0.16; pred.y += dy * 0.16; }
 }
 
 function predict(dt, edges) {
-  if (!pred || !predWorld) return;
+  if (!pred || !predWorld || predLock) return;
   predWorld.bullets.length = 0; predWorld.fx.length = 0;   /* the server owns bullets and sparks */
   pred.in.x = Input.state.x; pred.in.jump = Input.state.jump;
   pred.in.a1 = Input.state.a1; pred.in.a2 = Input.state.a2;
@@ -232,7 +234,7 @@ function stepOnline(dt, edges) {
   });
 
   let me = players.find(p => p.id === Net.id) || null;
-  if (me && pred && !me.dead && !me.out) {
+  if (me && pred && !me.dead && !me.out && !predLock) {
     Object.assign(me, {
       x: pred.x, y: pred.y, vx: pred.vx, face: pred.face, aim: pred.face > 0 ? 0 : Math.PI,
       tilt: pred.tilt, walk: pred.walk, shootT: pred.shootT,

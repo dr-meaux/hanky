@@ -72,12 +72,32 @@ function arm(cx, cy, ang, len, thick) {
 }
 
 function drawPlayer(p, col, isMe) {
-  const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+  const cy = p.y + p.h / 2;
   const dancing = p.dance > 0, cheering = p.cheer > 0 && !p.melee && p.shootT <= 0;
+  const taunting = p.taunt > 0, pinned = p.held > 0;
   const now = performance.now() / 1000;
-  let tilt = p.tilt, bob = 0;
-  if (dancing) { tilt = Math.sin(now * 13) * 0.42; bob = Math.abs(Math.sin(now * 13)) * -7; }
+  let tilt = p.tilt, bob = 0, push = 0;
+  if (taunting) {
+    /* hips do the work: a fast shove forward, a slow ease back */
+    const t = Math.sin(now * 16);
+    push = p.face * (t > 0 ? t * t : 0) * 10;
+    tilt = 0.12 + Math.max(0, t) * 0.14;
+    bob = -Math.max(0, t) * 3;
+  } else if (pinned) { tilt = Math.sin(now * 16) * 0.05; bob = 0; }
+  else if (dancing) { tilt = Math.sin(now * 13) * 0.42; bob = Math.abs(Math.sin(now * 13)) * -7; }
   else if (cheering) { tilt = Math.sin(now * 22) * 0.2; bob = Math.abs(Math.sin(now * 18)) * -4; }
+  const cx = p.x + p.w / 2 + push;
+
+  if (taunting) {
+    /* speed lines trailing off the back */
+    ctx.strokeStyle = 'rgba(20,20,22,' + (0.10 + Math.abs(push) * 0.02).toFixed(3) + ')';
+    ctx.lineWidth = 2; ctx.lineCap = 'butt';
+    for (let i = 0; i < 3; i++) {
+      const yy = cy - 9 + i * 9, back = cx - p.face * (p.w / 2 + 4);
+      ctx.beginPath(); ctx.moveTo(back, yy);
+      ctx.lineTo(back - p.face * (10 + Math.abs(push) * 1.4), yy); ctx.stroke();
+    }
+  }
 
   ctx.save(); ctx.translate(cx, cy + bob); ctx.scale(p.face, 1); ctx.rotate(tilt * p.face);
   ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.fillRect(-p.w / 2 + 5, -p.h / 2 + 5, p.w, p.h);
@@ -87,7 +107,16 @@ function drawPlayer(p, col, isMe) {
   ctx.restore();
 
   const sy = cy + bob - p.h * 0.06, f = p.face, sw = Math.sin(p.walk) * 0.7;
-  if (dancing) {
+  if (taunting) {
+    /* both arms forward, holding on */
+    const a0 = f > 0 ? 0.30 : Math.PI - 0.30;
+    arm(cx + f * 2, sy - 3, a0, 15, 3.6);
+    arm(cx + f * 2, sy + 7, a0, 15, 3.6);
+  } else if (pinned) {
+    /* arms out, going nowhere */
+    arm(cx - 9, sy, Math.PI / 2 + 1.15, 14, 3.4);
+    arm(cx + 9, sy, Math.PI / 2 - 1.15, 14, 3.4);
+  } else if (dancing) {
     arm(cx - 8, sy, -Math.PI / 2 + Math.sin(now * 13) * 0.9, 17, 3.6);
     arm(cx + 8, sy, -Math.PI / 2 - Math.sin(now * 13) * 0.9, 17, 3.6);
   } else if (cheering) {
@@ -111,11 +140,19 @@ function drawPlayer(p, col, isMe) {
     }
   }
 
-  bar(cx - 22, p.y - 14, 44, 5, p.hp / (p.maxHp || 100), col.body);
+  /* the pair stands on top of each other, so only the pinned block wears the
+     tag — the attacker's would land right on it */
+  if (taunting) return;
+
+  /* tag and health bar stay put while the block moves under them */
+  const bx = p.x + p.w / 2;
+  bar(bx - 22, p.y - 14, 44, 5, p.hp / (p.maxHp || 100), col.body);
   ctx.font = 'bold 11px "Courier New",monospace'; ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.fillText(p.name || '', cx + 1, p.y - 21);
-  ctx.fillStyle = '#141416'; ctx.fillText(p.name || '', cx, p.y - 22);
-  if (p.dance > 0) { ctx.fillStyle = col.dark; ctx.font = 'bold 12px "Courier New",monospace'; ctx.fillText('~ DANCE ~', cx, p.y - 34); }
+  ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.fillText(p.name || '', bx + 1, p.y - 21);
+  ctx.fillStyle = '#141416'; ctx.fillText(p.name || '', bx, p.y - 22);
+  ctx.font = 'bold 12px "Courier New",monospace';
+  if (pinned) { ctx.fillStyle = col.dark; ctx.fillText('~ SMASHED ~', bx, p.y - 34); }
+  else if (p.dance > 0) { ctx.fillStyle = col.dark; ctx.fillText('~ DANCE ~', bx, p.y - 34); }
 }
 
 function drawGhost(p, col) {
@@ -206,10 +243,13 @@ function frame(v, o) {
 
   for (const e of v.enemies) drawEnemy(e, S.TYPES);
 
-  for (const p of v.players) {
+  /* a pinned block draws over the one working away behind it */
+  const layer = p => (p.held > 0 ? 2 : p.taunt > 0 ? 0 : 1);
+  for (const p of v.players.slice().sort((a, b) => layer(a) - layer(b))) {
     const col = S.colorOf(p.color);
     if (p.dead || p.out) { drawGhost(p, col); continue; }
-    ctx.globalAlpha = (p.iframe > 0 && Math.floor(p.iframe * 20) % 2 === 0) ? 0.45 : 1;
+    const blink = p.iframe > 0 && !(p.taunt > 0) && !(p.held > 0) && Math.floor(p.iframe * 20) % 2 === 0;
+    ctx.globalAlpha = blink ? 0.45 : 1;
     drawPlayer(p, col, me && p.id === me.id);
     ctx.globalAlpha = 1;
   }

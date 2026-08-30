@@ -42,6 +42,11 @@ const LAYOUT = [
 const VS_LIVES = 3;
 const COOP_RESPAWN = 5, VS_RESPAWN = 3;
 
+/* two slams on the same block inside the window and the attacker takes a
+   victory lap: the victim is pinned in place while the attacker lines up
+   behind them and gets very busy. Both are untouchable while it plays. */
+const COMBO_WINDOW = 4, TAUNT_TIME = 1.5;
+
 /* ---------------- world ---------------- */
 
 function buildPlats() {
@@ -83,6 +88,8 @@ function makePlayer(w, opt) {
     hp: 100, maxHp: 100, iframe: 0, tilt: 0, walk: 0,
     shootT: 0, melee: false, meleeT: 0, hitDone: false,
     cd1: 0, cd2: 0, hurtFlash: 0, dance: 0, cheer: 0, danceLock: false,
+    comboOn: 0, comboN: 0, comboT: 0,
+    taunt: 0, tauntOn: 0, held: 0, heldBy: 0,
     dead: false, respawn: 0, lives: w.mode === 'vs' ? VS_LIVES : Infinity,
     score: 0, kills: 0, deaths: 0, out: false,
     in: { x: 0, jump: false, a1: false, a2: false },
@@ -231,16 +238,93 @@ function killEnemy(w, e, by) {
 }
 
 function hurtPlayer(w, p, dmg, kx, ky, by) {
-  if (p.dead || p.out || p.iframe > 0) return;
+  if (p.dead || p.out || p.iframe > 0 || p.held > 0) return false;
   p.hp -= dmg; p.iframe = 0.85; p.hurtFlash = 0.25; p.dance = 0;
   p.vx = kx; p.vy = ky;
   shake(w, 10, p.id);
   burst(w, p.x + p.w / 2, p.y + p.h / 2, colorOf(p.color).body, 8);
   if (p.hp <= 0) killPlayer(w, p, by);
+  return true;
+}
+
+/* ---------------- double slam ---------------- */
+
+/* stand the attacker up against the victim's back */
+function placeBehind(o, p) {
+  p.x = o.face > 0 ? o.x - p.w + 6 : o.x + o.w - 6;
+  p.y = o.y + o.h - p.h;
+  p.x = Math.max(0, Math.min(WW - p.w, p.x));
+}
+
+function startTaunt(w, p, o) {
+  p.comboOn = 0; p.comboN = 0; p.comboT = 0;
+  p.taunt = TAUNT_TIME; p.tauntOn = o.id;
+  p.melee = false; p.meleeT = 0; p.hitDone = false; p.dance = 0; p.cheer = 0;
+  p.vx = 0; p.vy = 0; p.face = o.face;
+  /* a hair longer than the taunt so the attacker is always the one to let go */
+  o.held = TAUNT_TIME + 0.1; o.heldBy = p.id;
+  o.melee = false; o.meleeT = 0; o.hitDone = false; o.dance = 0;
+  o.vx = 0; o.vy = 0;
+  /* nobody gets a free shot at the pair while the show is running */
+  p.iframe = Math.max(p.iframe, TAUNT_TIME + 0.2);
+  o.iframe = Math.max(o.iframe, TAUNT_TIME + 0.8);
+  placeBehind(o, p);
+  p.score += 150;
+  popText(w, o.x + o.w / 2, o.y - 26, 'SMASHED', colorOf(p.color).body);
+  burst(w, o.x + o.w / 2, o.y + o.h / 2, colorOf(p.color).body, 10);
+  shake(w, 12, p.id); shake(w, 12, o.id);
+}
+
+/* count slams landed on the same block; the second one starts the show */
+function registerSlam(w, p, o) {
+  if (p.comboOn === o.id && p.comboT > 0) p.comboN++;
+  else { p.comboOn = o.id; p.comboN = 1; }
+  p.comboT = COMBO_WINDOW;
+  if (p.comboN >= 2 && !p.taunt && !p.held && !o.held && !o.dead && !o.out) startTaunt(w, p, o);
+}
+
+function endTaunt(w, p) {
+  const o = getPlayer(w, p.tauntOn);
+  p.taunt = 0; p.tauntOn = 0;
+  if (o && o.heldBy === p.id) releaseHold(o);
+}
+
+function releaseHold(o) {
+  o.held = 0; o.heldBy = 0;
+  o.iframe = Math.max(o.iframe, 0.8);   /* a moment to get their bearings back */
+}
+
+/* the victim: rooted to the spot, still subject to gravity so they land */
+function stepHeld(w, p, dt) {
+  edgesOf(p);                                  /* buttons pressed while pinned go nowhere */
+  p.held -= dt;
+  p.vx = 0;
+  moveBody(w, p, dt);
+  p.tilt += (0 - p.tilt) * Math.min(1, dt * 8);
+  if (p.iframe > 0) p.iframe -= dt;
+  if (p.hurtFlash > 0) p.hurtFlash -= dt;
+  if (p.held <= 0) releaseHold(p);
+}
+
+/* the attacker: glued to the victim's back for the duration */
+function stepTaunt(w, p, dt) {
+  edgesOf(p);
+  p.taunt -= dt;
+  const o = getPlayer(w, p.tauntOn);
+  if (!o || o.dead || o.out || o.heldBy !== p.id) p.taunt = 0;
+  else { p.face = o.face; p.vx = 0; p.vy = 0; p.onGround = o.onGround; placeBehind(o, p); }
+  p.tilt += (0 - p.tilt) * Math.min(1, dt * 8);
+  if (p.iframe > 0) p.iframe -= dt;
+  if (p.hurtFlash > 0) p.hurtFlash -= dt;
+  if (p.taunt <= 0) { endTaunt(w, p); p.cheer = 0.8; }
 }
 
 function killPlayer(w, p, by) {
   p.hp = 0; p.dead = true; p.deaths++; p.melee = false; p.dance = 0;
+  p.comboOn = 0; p.comboN = 0; p.comboT = 0;
+  if (p.taunt > 0) endTaunt(w, p);
+  if (p.held > 0) releaseHold(p);
+  for (const o of w.players) if (o.tauntOn === p.id && o.taunt > 0) endTaunt(w, o);
   burst(w, p.x + p.w / 2, p.y + p.h / 2, colorOf(p.color).body, 16);
   shake(w, 14, p.id);
   if (w.mode === 'vs') {
@@ -257,6 +341,8 @@ function revive(w, p, hp) {
   spawnPoint(w, p);
   p.dead = false; p.hp = hp || p.maxHp * 0.6; p.iframe = 1.4; p.jumps = 2;
   p.melee = false; p.meleeT = 0; p.hitDone = false; p.dance = 0; p.respawn = 0;
+  p.taunt = 0; p.tauntOn = 0; p.held = 0; p.heldBy = 0;
+  p.comboOn = 0; p.comboN = 0; p.comboT = 0;
   burst(w, p.x + p.w / 2, p.y + p.h / 2, colorOf(p.color).body, 12);
 }
 
@@ -328,6 +414,12 @@ function step(w, dt) {
       if (p.respawn <= 0 && w.mode === 'coop' && w.players.some(o => !o.dead && !o.out)) revive(w, p);
       continue;
     }
+    if (p.comboT > 0) { p.comboT -= dt; if (p.comboT <= 0) { p.comboN = 0; p.comboOn = 0; } }
+    if (p.held > 0 || p.taunt > 0) {
+      if (p.held > 0) stepHeld(w, p, dt); else stepTaunt(w, p, dt);
+      if (p.y > WH + 300) killPlayer(w, p, null);   /* pinned over a pit still counts */
+      continue;
+    }
     movePlayer(w, p, dt, edgesOf(p));
 
     /* slam */
@@ -347,7 +439,10 @@ function step(w, dt) {
         if (w.mode === 'vs') for (const o of w.players) {
           if (o === p || o.dead || o.out || !overlap(hb, o)) continue;
           const dir = (o.x + o.w / 2) < (p.x + p.w / 2) ? -1 : 1;
-          hurtPlayer(w, o, 34, dir * 430, -320, p); hit = true;
+          const landed = hurtPlayer(w, o, 34, dir * 430, -320, p);
+          hit = true;
+          if (landed) registerSlam(w, p, o);
+          if (p.taunt > 0) break;                /* the show has started; stop swinging */
         }
         if (hit) { p.hitDone = true; shake(w, 12, p.id); w.fx.push({ k: 'h', p: p.id }); }
       }
@@ -506,7 +601,8 @@ function encode(w) {
       r1(p.dance), r1(p.cheer), r1(p.iframe), r1(p.hurtFlash),
       (p.melee ? 1 : 0) | (p.dead ? 2 : 0) | (p.out ? 4 : 0) | (p.onGround ? 8 : 0),
       p.lives === Infinity ? -1 : Math.max(0, p.lives), p.score, p.kills,
-      Math.ceil(Math.max(0, p.respawn)), p.teleport
+      Math.ceil(Math.max(0, p.respawn)), p.teleport,
+      r1(p.taunt), r1(p.held)
     ]),
     e: w.enemies.map(e => [
       e.id, KINDS.indexOf(e.kind), Math.round(e.x), Math.round(e.y), Math.round(e.vx),
@@ -527,6 +623,7 @@ function decode(s) {
       iframe: a[12], hurtFlash: a[13],
       melee: !!(a[14] & 1), dead: !!(a[14] & 2), out: !!(a[14] & 4), onGround: !!(a[14] & 8),
       lives: a[15] < 0 ? null : a[15], score: a[16], kills: a[17], respawn: a[18], teleport: a[19],
+      taunt: a[20], held: a[21],
       w: 26, h: 46, aim: a[4] > 0 ? 0 : Math.PI
     })),
     enemies: s.e.map(a => ({
