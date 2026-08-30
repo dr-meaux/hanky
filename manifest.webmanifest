@@ -1,7 +1,7 @@
 {
   "name": "BLOCK BRAWL",
   "short_name": "BLOCK BRAWL",
-  "description": "Shoot, slam and dance your way through waves of blocks. A tiny arena brawler that installs and plays offline.",
+  "description": "Four blocks, one arena. Team up against the waves or brawl each other over websockets — and play solo offline.",
   "id": "./",
   "start_url": "./",
   "scope": "./",

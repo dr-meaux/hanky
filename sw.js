@@ -1,10 +1,16 @@
 /* BLOCK BRAWL service worker — bump VERSION to ship a new build. */
-const VERSION = 'v2';
+const VERSION = 'v3';
 const CACHE = 'block-brawl-' + VERSION;
 const ASSETS = [
   './',
   './index.html',
   './manifest.webmanifest',
+  './game/style.css',
+  './game/sim.js',
+  './game/render.js',
+  './game/input.js',
+  './game/net.js',
+  './game/main.js',
   './icons/favicon.svg',
   './icons/favicon-32.png',
   './icons/apple-touch-icon.png',
