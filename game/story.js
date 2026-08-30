@@ -367,8 +367,12 @@ function build(entry, opt) {
      the third step of a climb would strand you on it. */
   w.digTop = Math.floor((WH - GROUND) / S.CELL);
   const p = S.addPlayer(w, { id: 1, name: 'HANKY', color: 'red' });
+  /* stand him on the floor under the spawn rather than dropping him from
+     wherever the level data happens to name — the intro holds the world
+     still, so he would hang in the air and then fall when it ended */
   const sp = at(L.spawn[0], L.spawn[1]);
-  p.x = sp.x; p.y = sp.y; p.vx = p.vy = 0; p.face = 1;
+  p.x = sp.x; p.y = ground(w, sp.x, p.w, sp.y) - p.h;
+  p.vx = p.vy = 0; p.face = 1; p.onGround = true; p.jumps = 2;
 
   const npcs = (L.npcs || []).map(n => {
     const pos = at(n.at[0], n.at[1]);

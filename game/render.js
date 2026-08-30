@@ -577,80 +577,69 @@ function wrap(txt, max) {
   return lines;
 }
 
-/* a speech bubble in world space, pointing down at whoever is talking */
-function bubble(b) {
-  const PAD = 11, LH = 17, MAX = 300;
-  ctx.font = 'bold 13px "Courier New",monospace';
-  const lines = wrap(b.text, MAX);
+/* Everything anybody says is drawn here: one panel, same place every time,
+   dead centre of the screen. Bubbles pinned to the speaker wandered off the
+   side, behind the thumb controls and across other characters, which made
+   half the story unreadable. Who is talking is carried by the name tag and
+   by the marker over their head instead. */
+function dialogue(b) {
+  const PAD = 15, LH = 21;
+  const FONT = 'bold 15px "Courier New",monospace';
+  ctx.font = FONT;
+  const room = Math.min(600, W - 32);
+  const lines = wrap(b.text, room - PAD * 2);
   let left = b.chars;
-  const shown = lines.map(l => { const s = l.slice(0, Math.max(0, left)); left -= l.length + 1; return s; });
+  const shown = lines.map(l => { const t = l.slice(0, Math.max(0, left)); left -= l.length + 1; return t; });
   let wide = 0;
   for (const l of lines) wide = Math.max(wide, ctx.measureText(l).width);
-  const bw = wide + PAD * 2, bh = lines.length * LH + PAD * 2 + 12;
-  const a = b.anchor;
-  let bx = (a ? a.x + a.w / 2 : b.x) - bw / 2;
-  let by = (a ? a.y : b.y) - bh - 16;
-  bx = Math.max(12, Math.min(2200 - bw - 12, bx));
-  by = Math.max(12, by);
 
-  ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.fillRect(bx + 6, by + 6, bw, bh);
+  const bw = Math.min(room, wide + PAD * 2), bh = lines.length * LH + PAD * 2;
+  const bx = Math.round(W / 2 - bw / 2);
+  const by = Math.round(Math.max(56, H * 0.47 - bh / 2));
+
+  ctx.fillStyle = 'rgba(20,20,22,.20)'; ctx.fillRect(bx + 7, by + 7, bw, bh);
   ctx.fillStyle = '#fbfbfc'; ctx.fillRect(bx, by, bw, bh);
   ctx.strokeStyle = '#141416'; ctx.lineWidth = 3; ctx.strokeRect(bx + 1.5, by + 1.5, bw - 3, bh - 3);
+
   /* the name sits in the top border, like a label taped on */
   if (b.who) {
-    ctx.fillStyle = b.color || '#141416';
-    const nw = ctx.measureText(b.who).width + 12;
-    ctx.fillRect(bx + 8, by - 9, nw, 18);
-    ctx.strokeRect(bx + 9.5, by - 7.5, nw - 3, 15);
-    ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.font = 'bold 11px "Courier New",monospace';
-    ctx.fillText(b.who, bx + 14, by + 4);
-    ctx.font = 'bold 13px "Courier New",monospace';
+    ctx.font = 'bold 11px "Courier New",monospace'; ctx.textAlign = 'left';
+    const nw = ctx.measureText(b.who).width + 14;
+    ctx.fillStyle = b.color || '#141416'; ctx.fillRect(bx + 12, by - 10, nw, 19);
+    ctx.strokeStyle = '#141416'; ctx.lineWidth = 3; ctx.strokeRect(bx + 13.5, by - 8.5, nw - 3, 16);
+    ctx.fillStyle = '#fff'; ctx.fillText(b.who, bx + 19, by + 4);
+    ctx.font = FONT;
   }
   ctx.fillStyle = '#141416'; ctx.textAlign = 'left';
-  for (let i = 0; i < shown.length; i++) ctx.fillText(shown[i], bx + PAD, by + PAD + 13 + i * LH);
+  for (let i = 0; i < shown.length; i++) ctx.fillText(shown[i], bx + PAD, by + PAD + 15 + i * LH);
 
-  /* tail */
-  if (a) {
-    const tx = Math.max(bx + 14, Math.min(bx + bw - 14, a.x + a.w / 2));
-    ctx.fillStyle = '#fbfbfc';
-    ctx.beginPath(); ctx.moveTo(tx - 8, by + bh - 2); ctx.lineTo(tx + 8, by + bh - 2); ctx.lineTo(tx, by + bh + 14); ctx.fill();
-    ctx.strokeStyle = '#141416'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(tx - 8, by + bh - 1.5); ctx.lineTo(tx, by + bh + 14); ctx.lineTo(tx + 8, by + bh - 1.5); ctx.stroke();
-  }
   if (b.more) {
-    ctx.fillStyle = '#141416'; ctx.textAlign = 'center';
-    ctx.fillText('▼', bx + bw - 16, by + bh - 9);
+    const t = performance.now() / 1000;
+    ctx.textAlign = 'center'; ctx.fillStyle = '#141416';
+    ctx.fillText('▼', bx + bw - 17, by + bh - 11 + Math.sin(t * 5) * 2);
   }
 }
 
-/* narration has nobody to point at, so it sits at the foot of the screen */
-function caption(b) {
-  const PAD = 14, LH = 19;
-  ctx.font = 'bold 14px "Courier New",monospace';
-  const max = Math.min(560, W - 60);
-  const lines = wrap(b.text, max - PAD * 2);
-  let left = b.chars;
-  const shown = lines.map(l => { const s = l.slice(0, Math.max(0, left)); left -= l.length + 1; return s; });
-  let wide = 0;
-  for (const l of lines) wide = Math.max(wide, ctx.measureText(l).width);
-  const bw = wide + PAD * 2, bh = lines.length * LH + PAD * 2;
-  const bx = Math.round(W / 2 - bw / 2), by = Math.round(H - bh - 26);
+/* which block the voice belongs to, marked in the world rather than by
+   dragging the text over to them */
+function speakerMark(a, col) {
+  const t = performance.now() / 1000;
+  const x = a.x + a.w / 2, y = a.y - 26 - Math.abs(Math.sin(t * 3)) * 5;
+  ctx.fillStyle = 'rgba(255,255,255,.5)';
+  ctx.beginPath(); ctx.moveTo(x - 9 + 3, y - 11 + 3); ctx.lineTo(x + 9 + 3, y - 11 + 3); ctx.lineTo(x + 3, y + 3 + 3); ctx.fill();
+  ctx.fillStyle = col || '#141416';
+  ctx.beginPath(); ctx.moveTo(x - 9, y - 11); ctx.lineTo(x + 9, y - 11); ctx.lineTo(x, y + 3); ctx.fill();
+}
 
-  ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.fillRect(bx + 6, by + 6, bw, bh);
-  ctx.fillStyle = '#fbfbfc'; ctx.fillRect(bx, by, bw, bh);
-  ctx.strokeStyle = '#141416'; ctx.lineWidth = 3; ctx.strokeRect(bx + 1.5, by + 1.5, bw - 3, bh - 3);
-  /* a voice with no body in the room still gets its name on the box */
-  if (b.who) {
-    ctx.font = 'bold 11px "Courier New",monospace'; ctx.textAlign = 'left';
-    const nw = ctx.measureText(b.who).width + 12;
-    ctx.fillStyle = b.color || '#141416'; ctx.fillRect(bx + 10, by - 9, nw, 18);
-    ctx.strokeRect(bx + 11.5, by - 7.5, nw - 3, 15);
-    ctx.fillStyle = '#fff'; ctx.fillText(b.who, bx + 16, by + 4);
-    ctx.font = 'bold 14px "Courier New",monospace';
-  }
-  ctx.fillStyle = '#141416'; ctx.textAlign = 'left';
-  for (let i = 0; i < shown.length; i++) ctx.fillText(shown[i], bx + PAD, by + PAD + 14 + i * LH);
-  if (b.more) { ctx.textAlign = 'center'; ctx.fillText('▼', bx + bw - 16, by + bh - 10); }
+/* a one-off line from somebody just stood up: brief, and out of the way */
+function toast(txt) {
+  ctx.font = 'bold 13px "Courier New",monospace'; ctx.textAlign = 'center';
+  const wid = Math.min(W - 32, ctx.measureText(txt).width + 26);
+  const bx = Math.round(W / 2 - wid / 2), by = 152;
+  ctx.fillStyle = 'rgba(20,20,22,.18)'; ctx.fillRect(bx + 5, by + 5, wid, 28);
+  ctx.fillStyle = '#fbfbfc'; ctx.fillRect(bx, by, wid, 28);
+  ctx.strokeStyle = '#249a2e'; ctx.lineWidth = 3; ctx.strokeRect(bx + 1.5, by + 1.5, wid - 3, 25);
+  ctx.fillStyle = '#141416'; ctx.fillText(txt, W / 2, by + 19);
 }
 
 function exitGate(g, theme) {
@@ -768,14 +757,14 @@ function frame(v, o) {
     ctx.fillStyle = '#141416'; ctx.fillRect(v.prompt.x - w2 / 2, y - 13, w2, 20);
     ctx.fillStyle = '#fff'; ctx.fillText(v.prompt.label, v.prompt.x, y + 2);
   }
-  if (v.aside) bubble({ text: v.aside.text, chars: 999, x: v.aside.x, y: v.aside.y, anchor: null, who: null, more: false });
-  if (v.bubble && v.bubble.anchor) bubble(v.bubble);
+  /* the speaker is flagged in the world; what they say is drawn on top of it */
+  if (v.bubble && v.bubble.anchor) speakerMark(v.bubble.anchor, v.bubble.color);
 
   ctx.restore();
   ctx.restore();
 
-  /* a line with nobody to say it is drawn over the whole scene instead */
-  if (v.bubble && !v.bubble.anchor) caption(v.bubble);
+  if (v.aside) toast(v.aside.text);
+  if (v.bubble) dialogue(v.bubble);
 
   if (v.fade && v.fade.a > 0) {
     ctx.globalAlpha = Math.min(1, v.fade.a); ctx.fillStyle = v.fade.col;
@@ -792,7 +781,11 @@ function storyHud(v, o) {
   ctx.textAlign = 'left';
   ctx.font = 'bold 11px "Courier New",monospace';
   ctx.fillStyle = 'rgba(20,20,22,.5)';
-  ctx.fillText(v.title || '', 16, 26);
+  /* on a narrow screen the full "area · level" runs under the CHAPTERS pill,
+     so keep only the part that says where you are right now */
+  let title = v.title || '';
+  if (W < 560 && title.indexOf('·') > 0) title = title.split('·').pop().trim();
+  ctx.fillText(title, 16, 26);
 
   if (v.objective) {
     ctx.font = 'bold 15px "Courier New",monospace';
@@ -807,13 +800,17 @@ function storyHud(v, o) {
     bar(16, 74, 120, 7, me.dead ? 0 : me.hp / (me.maxHp || 100), '#e8172a');
   }
 
-  /* hints sit high, clear of the thumb controls */
+  /* hints sit high, clear of the thumb controls, and wrap to the screen */
   if (v.banner && !v.bubble) {
-    ctx.textAlign = 'center'; ctx.font = 'bold 13px "Courier New",monospace';
-    const wid = Math.min(W - 24, ctx.measureText(v.banner).width + 26);
-    ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.fillRect(W / 2 - wid / 2, 96, wid, 26);
-    ctx.strokeStyle = '#141416'; ctx.lineWidth = 2; ctx.strokeRect(W / 2 - wid / 2 + 1, 97, wid - 2, 24);
-    ctx.fillStyle = '#141416'; ctx.fillText(v.banner, W / 2, 114);
+    ctx.font = 'bold 13px "Courier New",monospace';
+    const lines = wrap(v.banner, Math.min(520, W - 44) - 26);
+    let wide = 0;
+    for (const l of lines) wide = Math.max(wide, ctx.measureText(l).width);
+    const wid = wide + 26, hgt = lines.length * 17 + 12, bx = Math.round(W / 2 - wid / 2);
+    ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillRect(bx, 96, wid, hgt);
+    ctx.strokeStyle = '#141416'; ctx.lineWidth = 2; ctx.strokeRect(bx + 1, 97, wid - 2, hgt - 2);
+    ctx.fillStyle = '#141416'; ctx.textAlign = 'center';
+    for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], W / 2, 96 + 18 + i * 17);
   }
   if (v.down) {
     ctx.textAlign = 'center'; ctx.font = 'bold 20px "Courier New",monospace';

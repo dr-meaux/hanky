@@ -37,6 +37,7 @@ function show(which) {
   document.body.classList.add('hideControls');
   quitBtn.hidden = true;
   showUse(false);
+  document.body.classList.remove('talking');
 }
 
 /* the TALK button belongs to the story and nothing else; .btn carries
@@ -52,6 +53,7 @@ function showGame() {
   quitBtn.hidden = false;
   quitBtn.textContent = story ? 'CHAPTERS' : online ? 'LOBBY' : 'MENU';
   showUse(false);
+  document.body.classList.remove('talking');
 }
 /* the attack buttons wear your color, so you always know which block is you */
 function paintControls(colorId) {
@@ -156,10 +158,12 @@ function stepStory(dt, edges) {
   const out = Story.step(dt, edges, Input.state);
   if (!out) return null;
 
-  const t = Story.talking() ? null : Story.target();
-  if (Story.talking()) showUse(true, 'NEXT');
+  const talking = Story.talking();
+  const t = talking ? null : Story.target();
+  if (talking) showUse(true, 'NEXT');
   else if (t) showUse(true, t.label);
   else showUse(false);
+  document.body.classList.toggle('talking', talking);
 
   Render.fx(out.fx, out.me ? out.me.id : 0); out.fx.length = 0;
   if (Story.done()) showChapterEnd();
