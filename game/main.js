@@ -12,9 +12,10 @@ const DELAY = 0.12;          /* render this far behind the server, for smooth in
 const SEND_HZ = 30;
 
 const overlay = $('overlay'), quitBtn = $('quit'), netInfo = $('netInfo');
-const SCREENS = ['scrName', 'scrLobby', 'scrOver', 'scrBusy'];
+const SCREENS = ['scrName', 'scrLobby', 'scrOver', 'scrBusy', 'scrStory', 'scrChapter'];
 
-let phase = 'name';                       /* name | busy | lobby | play | over */
+let phase = 'name';        /* name | busy | lobby | play | over | story | chapter */
+let story = false;         /* the campaign is running, not the arena */
 let online = false;
 let world = null;                          /* solo: the real simulation */
 let acc = 0;
@@ -35,11 +36,22 @@ function show(which) {
   overlay.classList.remove('hide');
   document.body.classList.add('hideControls');
   quitBtn.hidden = true;
+  showUse(false);
+}
+
+/* the TALK button belongs to the story and nothing else; .btn carries
+   display:grid, so the attribute alone would not hide it */
+function showUse(on, label) {
+  const el = $('bUse');
+  el.style.display = on ? 'grid' : 'none';
+  if (on && label) el.textContent = label;
 }
 function showGame() {
   overlay.classList.add('hide');
   document.body.classList.remove('hideControls');
   quitBtn.hidden = false;
+  quitBtn.textContent = story ? 'CHAPTERS' : online ? 'LOBBY' : 'MENU';
+  showUse(false);
 }
 /* the attack buttons wear your color, so you always know which block is you */
 function paintControls(colorId) {
@@ -57,7 +69,8 @@ function busy(title, msg, back) {
 /* ---------------- solo ---------------- */
 
 function startSolo() {
-  online = false;
+  online = false; story = false;
+  Story.stop();
   Net.disconnect();
   world = S.createWorld('coop');
   S.addPlayer(world, { id: 1, name: nameField(), color: 'red' });
@@ -85,6 +98,86 @@ function stepSolo(dt, edges) {
   return { view: world, me: p };
 }
 
+/* ---------------- story ---------------- */
+
+/* The campaign is single player and entirely local: Story owns the world,
+   main just hands it input and paints whatever it gives back. */
+function openStory() {
+  online = false; story = false;
+  Net.disconnect();
+  Story.stop();
+  phase = 'story'; show('scrStory');
+  drawChapters();
+}
+
+function drawChapters() {
+  const list = $('storyList');
+  list.innerHTML = '';
+  const open = Story.unlocked();
+  for (const area of Story.AREAS) {
+    const box = document.createElement('div');
+    box.className = 'chapter';
+    const h = document.createElement('b');
+    h.textContent = area.name;
+    const s = document.createElement('span');
+    s.textContent = area.blurb;
+    box.append(h, s);
+    const row = document.createElement('div');
+    row.className = 'levels';
+    for (const entry of Story.LEVELS.filter(e => e.area === area)) {
+      const b = document.createElement('button');
+      const locked = entry.flat > open;
+      b.className = 'lvl' + (locked ? ' locked' : '') + (entry.flat === open ? ' next' : '');
+      b.textContent = locked ? '🔒' : entry.level.name;
+      b.disabled = locked;
+      b.onclick = () => playLevel(entry.areaIdx, entry.levelIdx);
+      row.append(b);
+    }
+    box.append(row);
+    list.append(box);
+  }
+  $('storySub').textContent = open >= Story.LEVELS.length - 1
+    ? 'The whole story is open. Play any part of it again.'
+    : 'The first tank that ever stood up.';
+}
+
+function playLevel(ai, li) {
+  Story.start(ai, li);
+  story = true; online = false;
+  paintControls('red');
+  Render.reset();
+  phase = 'play';
+  showGame();
+}
+
+function stepStory(dt, edges) {
+  /* the interact button doubles as "next line" while someone is talking */
+  if (edges.use) Story.interact();
+  const out = Story.step(dt, edges, Input.state);
+  if (!out) return null;
+
+  const t = Story.talking() ? null : Story.target();
+  if (Story.talking()) showUse(true, 'NEXT');
+  else if (t) showUse(true, t.label);
+  else showUse(false);
+
+  Render.fx(out.fx, out.me ? out.me.id : 0); out.fx.length = 0;
+  if (Story.done()) showChapterEnd();
+  return { view: out.view, me: out.me };
+}
+
+function showChapterEnd() {
+  const st = Story.current(), nxt = Story.nextEntry();
+  $('chTitle').textContent = st.level.end || (st.level.name + ' — DONE');
+  $('chSub').textContent = nxt
+    ? 'Next: ' + nxt.area.name + ' · ' + nxt.level.name
+    : 'That is the whole story. Hanky stood, and then so did everybody else.';
+  $('bChNext').hidden = !nxt;
+  $('bChNext').onclick = () => { if (nxt) playLevel(nxt.areaIdx, nxt.levelIdx); };
+  $('bChRetry').onclick = () => playLevel(st.entry.areaIdx, st.entry.levelIdx);
+  phase = 'chapter'; show('scrChapter');
+}
+
 /* ---------------- online ---------------- */
 
 function nameField() { return ($('fName').value || '').trim().slice(0, 12) || 'BLOCK'; }
@@ -95,7 +188,8 @@ function joinLobby() {
   Net.store.set('bb.name', name);
   Net.store.set('bb.room', room);
   if (!server) { busy('NO SERVER', 'Enter the address of a HANKY server, or play solo.', true); return; }
-  online = true;
+  online = true; story = false;
+  Story.stop();
   busy('CONNECTING', 'Reaching ' + Net.normalize(server) + '…', true);
   Net.connect(server, { name, room, color: Net.store.get('bb.color') });
 }
@@ -361,7 +455,7 @@ function loop(now) {
   const edges = Input.takeEdges();
 
   let frame = null;
-  if (phase === 'play') frame = online ? stepOnline(dt, edges) : stepSolo(dt, edges);
+  if (phase === 'play') frame = story ? stepStory(dt, edges) : online ? stepOnline(dt, edges) : stepSolo(dt, edges);
 
   if (frame && frame.view) Render.frame(frame.view, { dt, me: frame.me, sim: S });
   else Render.frame({ mode: 'coop', wave: 0, kills: 0, score: 0, grid: menu.grid, bg: menu.bg, players: [], enemies: [], bullets: [], hearts: [] },
@@ -391,6 +485,18 @@ $('fServer').placeholder = 'ws://localhost:8080';
 
 $('bJoin').onclick = joinLobby;
 $('bSolo').onclick = startSolo;
+$('bStory').onclick = openStory;
+$('bStoryBack').onclick = () => { phase = 'name'; show('scrName'); };
+$('bStoryReset').onclick = () => { Story.resetProgress(); drawChapters(); };
+$('bChMenu').onclick = openStory;
+
+/* while someone is talking, a tap anywhere moves the line along */
+$('c').addEventListener('pointerdown', () => { if (phase === 'play' && story) Story.advance(); });
+addEventListener('keydown', e => {
+  /* E and Enter already come through as the interact edge; space is the spare */
+  if (phase !== 'play' || !story || e.repeat || e.target.tagName === 'INPUT') return;
+  if (e.key === ' ') Story.advance();
+});
 $('fName').addEventListener('keydown', e => { if (e.key === 'Enter') joinLobby(); });
 $('fRoom').addEventListener('keydown', e => { if (e.key === 'Enter') joinLobby(); });
 $('fServer').addEventListener('keydown', e => { if (e.key === 'Enter') joinLobby(); });
@@ -408,13 +514,25 @@ $('bAgain').onclick = () => {
   else startSolo();
 };
 quitBtn.onclick = () => {
-  if (online) { Net.send({ t: 'leave' }); phase = 'lobby'; show('scrLobby'); drawLobby(); }
+  if (story) openStory();
+  else if (online) { Net.send({ t: 'leave' }); phase = 'lobby'; show('scrLobby'); drawLobby(); }
   else { phase = 'name'; show('scrName'); }
 };
 addEventListener('keydown', e => { if (e.key === 'Escape' && phase === 'play') quitBtn.onclick(); });
 
 show('scrName');
 requestAnimationFrame(loop);
+
+/* Which build is actually cached, so a stale copy is visible rather than
+   mysterious: an old name here means the page is running old code. */
+if (typeof caches !== 'undefined' && caches.keys) {
+  caches.keys()
+    .then(keys => {
+      const mine = keys.filter(k => k.indexOf('hanky-') === 0);
+      if (mine.length) $('buildTag').textContent = 'build ' + mine.sort().join(' + ').replace(/hanky-/g, '');
+    })
+    .catch(() => {});
+}
 
 if ('serviceWorker' in navigator)
   addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));

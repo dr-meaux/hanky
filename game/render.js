@@ -10,6 +10,13 @@ let cvs, ctx, W = 0, H = 0, DPR = 1;
 let parts = [], pops = [], shake = 0;
 const cam = { x: 0, y: 0, init: false };
 
+/* the arena's own palette; story areas pass their own in */
+const THEME = {
+  sky: '#cfcfd1', glow: 'rgba(255,255,255,.8)',
+  bg: '#c2c2c6', bgSide: '#b0b0b5', plat: '#57575a', platSide: '#2c2c2e',
+  rock: '#43434a', ink: '#141416'
+};
+
 function init(canvas) {
   cvs = canvas; ctx = cvs.getContext('2d');
   resize();
@@ -88,12 +95,13 @@ function scanTerrain(grid, S, camx, camy) {
   }
 }
 
-function drawTerrain(grid, S) {
+function drawTerrain(S, th) {
   const CELL = S.CELL, d = 7;
-  ctx.fillStyle = '#2c2c2e';
+  ctx.fillStyle = th.platSide;
   for (let i = 0; i < runs.n; i++) ctx.fillRect(runs.x[i], runs.y[i], runs.w[i] + d, CELL + d);
   for (let i = 0; i < runs.n; i++) {
-    ctx.fillStyle = runs.rock[i] ? '#43434a' : '#57575a';   /* bedrock reads denser */
+    /* bedrock reads denser; an area that names no rock colour just uses its own */
+    ctx.fillStyle = runs.rock[i] ? (th.rock || th.plat) : th.plat;
     ctx.fillRect(runs.x[i], runs.y[i], runs.w[i], CELL);
   }
   ctx.fillStyle = 'rgba(255,255,255,.10)';
@@ -216,8 +224,38 @@ function drawGhost(p, col) {
   ctx.fillText(p.name + ' ' + tag, p.x + p.w / 2, p.y - 10);
 }
 
+/* A tank: long, low, on treads, with the visor bar laid along the hull —
+   the shape Hanky used to be. Knocked down it lies over on its side. */
+function drawTank(x, y, w, h, body, opt) {
+  const o = opt || {}, f = o.face || 1, cx = x + w / 2, cy = y + h / 2;
+  const tip = o.dazed ? (f > 0 ? 0.42 : -0.42) : (o.tilt || 0);
+  ctx.save(); ctx.translate(cx, cy + (o.dazed ? h * 0.18 : 0)); ctx.rotate(tip);
+  ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.fillRect(-w / 2 + 5, -h / 2 + 5, w, h);
+  ctx.fillStyle = o.flash ? '#e6e6ea' : body; ctx.fillRect(-w / 2, -h / 2, w, h);
+  /* visor along the hull, facing the way it points */
+  ctx.fillStyle = '#141416';
+  ctx.fillRect(f > 0 ? w / 2 - w * 0.46 : -w / 2, -h / 2 + h * 0.20, w * 0.46, h * 0.26);
+  /* stubby barrel */
+  ctx.fillRect(f > 0 ? w / 2 : -w / 2 - w * 0.16, -h / 2 + h * 0.30, w * 0.16, h * 0.14);
+  /* treads */
+  ctx.fillStyle = 'rgba(20,20,22,.55)';
+  const tw = w / 5;
+  for (let i = 0; i < 5; i++) ctx.fillRect(-w / 2 + i * tw + 2, h / 2 - 5, tw - 4, 5);
+  ctx.restore();
+}
+
 function drawEnemy(e, TYPES) {
   const T = TYPES[e.kind], cx = e.x + e.w / 2, cy = e.y + e.h / 2, ef = Math.sign(e.vx || 1);
+  if (T.lying) {
+    drawTank(e.x, e.y, e.w, e.h, e.flash > 0 ? '#e6e6ea' : T.body,
+      { face: ef, tilt: e.tilt * 0.5, dazed: e.dazed, flash: e.flash > 0 });
+    if (e.dazed) {
+      ctx.font = 'bold 11px "Courier New",monospace'; ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(20,20,22,.55)';
+      ctx.fillText('· · ·', cx, e.y - 10);
+    } else bar(cx - e.w * 0.26, e.y - 10, e.w * 0.52, 4, e.hp / e.maxHp, '#57575a');
+    return;
+  }
   ctx.save(); ctx.translate(cx, cy); ctx.scale(ef, 1); ctx.rotate(e.tilt * ef);
   ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.fillRect(-e.w / 2 + 5, -e.h / 2 + 5, e.w, e.h);
   ctx.fillStyle = e.flash > 0 ? '#c9c9cc' : T.body; ctx.fillRect(-e.w / 2, -e.h / 2, e.w, e.h);
@@ -232,6 +270,158 @@ function drawEnemy(e, TYPES) {
     arm(cx + ef * e.w * 0.4, sy, Math.PI / 2 + sw * 0.7, e.h * 0.34, 3.2);
   }
   bar(cx - 13, e.y - 10, 26, 4, e.hp / e.maxHp, '#57575a');
+}
+
+/* ---------------- story pieces ---------------- */
+
+function drawNpc(n) {
+  const cx = n.x + n.w / 2;
+  if (n.kind === 'god') {
+    /* not a block with a face — a tall pane of light with a slow pulse */
+    const a = 0.55 + Math.sin(n.bob * 1.4) * 0.12;
+    ctx.fillStyle = 'rgba(255,255,255,' + a.toFixed(2) + ')';
+    ctx.fillRect(n.x - 10, n.y - 10, n.w + 20, n.h + 20);
+    ctx.fillStyle = '#fbf7e4'; ctx.fillRect(n.x, n.y, n.w, n.h);
+    ctx.fillStyle = 'rgba(212,186,92,.55)'; ctx.fillRect(n.x, n.y, n.w, 6);
+    ctx.fillStyle = 'rgba(212,186,92,.35)'; ctx.fillRect(n.x, n.y + n.h - 6, n.w, 6);
+    return;
+  }
+  if (n.kind === 'stand') {
+    /* a tank that has been stood up: the same silhouette as Hanky */
+    const rise = n.risen === undefined ? 1 : n.risen;
+    const h = n.h * (0.45 + rise * 0.55), y = n.y + n.h - h;
+    const wob = rise < 1 ? Math.sin(rise * 22) * 0.12 * (1 - rise) : 0;
+    ctx.save(); ctx.translate(cx, y + h / 2); ctx.rotate(wob);
+    ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.fillRect(-n.w / 2 + 5, -h / 2 + 5, n.w, h);
+    ctx.fillStyle = n.color || '#3ddc4a'; ctx.fillRect(-n.w / 2, -h / 2, n.w, h);
+    ctx.fillStyle = '#141416'; ctx.fillRect(-n.w / 2, -h / 2 + h * 0.16, n.w * 0.62, h * 0.14);
+    ctx.restore();
+    const sy = y + h * 0.44;
+    arm(cx - 9, sy, Math.PI / 2 - 0.5, 13, 3.2);
+    arm(cx + 9, sy, Math.PI / 2 + 0.5, 13, 3.2);
+    return;
+  }
+  drawTank(n.x, n.y, n.w, n.h, n.color || '#7a7a82', { face: n.face, tilt: Math.sin(n.bob * 1.2) * 0.02 });
+}
+
+function nameTag(x, y, txt, col) {
+  ctx.font = 'bold 11px "Courier New",monospace'; ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.fillText(txt, x + 1, y + 1);
+  ctx.fillStyle = col || '#141416'; ctx.fillText(txt, x, y);
+}
+
+/* wrap once per string and keep it — the reveal walks the same lines */
+const wrapCache = new Map();
+function wrap(txt, max) {
+  const key = txt + '|' + max;
+  let hit = wrapCache.get(key);
+  if (hit) return hit;
+  const words = txt.split(' '), lines = [];
+  let line = '';
+  for (const word of words) {
+    const t = line ? line + ' ' + word : word;
+    if (ctx.measureText(t).width > max && line) { lines.push(line); line = word; }
+    else line = t;
+  }
+  if (line) lines.push(line);
+  if (wrapCache.size > 400) wrapCache.clear();
+  wrapCache.set(key, lines);
+  return lines;
+}
+
+/* a speech bubble in world space, pointing down at whoever is talking */
+function bubble(b) {
+  const PAD = 11, LH = 17, MAX = 300;
+  ctx.font = 'bold 13px "Courier New",monospace';
+  const lines = wrap(b.text, MAX);
+  let left = b.chars;
+  const shown = lines.map(l => { const s = l.slice(0, Math.max(0, left)); left -= l.length + 1; return s; });
+  let wide = 0;
+  for (const l of lines) wide = Math.max(wide, ctx.measureText(l).width);
+  const bw = wide + PAD * 2, bh = lines.length * LH + PAD * 2 + 12;
+  const a = b.anchor;
+  let bx = (a ? a.x + a.w / 2 : b.x) - bw / 2;
+  let by = (a ? a.y : b.y) - bh - 16;
+  bx = Math.max(12, Math.min(2200 - bw - 12, bx));
+  by = Math.max(12, by);
+
+  ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.fillRect(bx + 6, by + 6, bw, bh);
+  ctx.fillStyle = '#fbfbfc'; ctx.fillRect(bx, by, bw, bh);
+  ctx.strokeStyle = '#141416'; ctx.lineWidth = 3; ctx.strokeRect(bx + 1.5, by + 1.5, bw - 3, bh - 3);
+  /* the name sits in the top border, like a label taped on */
+  if (b.who) {
+    ctx.fillStyle = b.color || '#141416';
+    const nw = ctx.measureText(b.who).width + 12;
+    ctx.fillRect(bx + 8, by - 9, nw, 18);
+    ctx.strokeRect(bx + 9.5, by - 7.5, nw - 3, 15);
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.font = 'bold 11px "Courier New",monospace';
+    ctx.fillText(b.who, bx + 14, by + 4);
+    ctx.font = 'bold 13px "Courier New",monospace';
+  }
+  ctx.fillStyle = '#141416'; ctx.textAlign = 'left';
+  for (let i = 0; i < shown.length; i++) ctx.fillText(shown[i], bx + PAD, by + PAD + 13 + i * LH);
+
+  /* tail */
+  if (a) {
+    const tx = Math.max(bx + 14, Math.min(bx + bw - 14, a.x + a.w / 2));
+    ctx.fillStyle = '#fbfbfc';
+    ctx.beginPath(); ctx.moveTo(tx - 8, by + bh - 2); ctx.lineTo(tx + 8, by + bh - 2); ctx.lineTo(tx, by + bh + 14); ctx.fill();
+    ctx.strokeStyle = '#141416'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(tx - 8, by + bh - 1.5); ctx.lineTo(tx, by + bh + 14); ctx.lineTo(tx + 8, by + bh - 1.5); ctx.stroke();
+  }
+  if (b.more) {
+    ctx.fillStyle = '#141416'; ctx.textAlign = 'center';
+    ctx.fillText('▼', bx + bw - 16, by + bh - 9);
+  }
+}
+
+/* narration has nobody to point at, so it sits at the foot of the screen */
+function caption(b) {
+  const PAD = 14, LH = 19;
+  ctx.font = 'bold 14px "Courier New",monospace';
+  const max = Math.min(560, W - 60);
+  const lines = wrap(b.text, max - PAD * 2);
+  let left = b.chars;
+  const shown = lines.map(l => { const s = l.slice(0, Math.max(0, left)); left -= l.length + 1; return s; });
+  let wide = 0;
+  for (const l of lines) wide = Math.max(wide, ctx.measureText(l).width);
+  const bw = wide + PAD * 2, bh = lines.length * LH + PAD * 2;
+  const bx = Math.round(W / 2 - bw / 2), by = Math.round(H - bh - 26);
+
+  ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.fillRect(bx + 6, by + 6, bw, bh);
+  ctx.fillStyle = '#fbfbfc'; ctx.fillRect(bx, by, bw, bh);
+  ctx.strokeStyle = '#141416'; ctx.lineWidth = 3; ctx.strokeRect(bx + 1.5, by + 1.5, bw - 3, bh - 3);
+  /* a voice with no body in the room still gets its name on the box */
+  if (b.who) {
+    ctx.font = 'bold 11px "Courier New",monospace'; ctx.textAlign = 'left';
+    const nw = ctx.measureText(b.who).width + 12;
+    ctx.fillStyle = b.color || '#141416'; ctx.fillRect(bx + 10, by - 9, nw, 18);
+    ctx.strokeRect(bx + 11.5, by - 7.5, nw - 3, 15);
+    ctx.fillStyle = '#fff'; ctx.fillText(b.who, bx + 16, by + 4);
+    ctx.font = 'bold 14px "Courier New",monospace';
+  }
+  ctx.fillStyle = '#141416'; ctx.textAlign = 'left';
+  for (let i = 0; i < shown.length; i++) ctx.fillText(shown[i], bx + PAD, by + PAD + 14 + i * LH);
+  if (b.more) { ctx.textAlign = 'center'; ctx.fillText('▼', bx + bw - 16, by + bh - 10); }
+}
+
+function exitGate(g, theme) {
+  const w = 54, h = 96, x = g.x - w / 2, y = g.y - h;
+  const t = performance.now() / 1000;
+  if (g.open) {
+    const a = 0.35 + Math.sin(t * 3) * 0.15;
+    ctx.fillStyle = 'rgba(255,255,255,' + a.toFixed(2) + ')';
+    ctx.fillRect(x - 12, y - 12, w + 24, h + 24);
+  }
+  ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.fillRect(x + 6, y + 6, w, h);
+  ctx.fillStyle = g.open ? '#fbf7e4' : (theme ? theme.plat : '#57575a');
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = '#141416'; ctx.lineWidth = 3; ctx.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3);
+  ctx.fillStyle = g.open ? '#141416' : 'rgba(20,20,22,.35)';
+  ctx.fillRect(x + 12, y + 16, w - 24, 6);
+  ctx.font = 'bold 10px "Courier New",monospace'; ctx.textAlign = 'center';
+  ctx.fillStyle = g.open ? '#141416' : 'rgba(20,20,22,.4)';
+  ctx.fillText(g.open ? 'OPEN' : 'SHUT', g.x, y - 8);
 }
 
 /* ---------------- frame ---------------- */
@@ -256,13 +446,16 @@ function frame(v, o) {
   cam.x = S.WW <= W ? (S.WW - W) / 2 : Math.max(0, Math.min(S.WW - W, cam.x));
   cam.y = S.WH <= H ? (S.WH - H) / 2 : Math.max(0, Math.min(S.WH - H, cam.y));
 
+  /* every area repaints the same shapes */
+  const th = v.theme || THEME;
+
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  ctx.fillStyle = '#cfcfd1'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = th.sky; ctx.fillRect(0, 0, W, H);
   ctx.save();
   if (shake > 0) ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake);
 
   ctx.save(); ctx.translate(-cam.x * 0.45, -cam.y * 0.45);
-  for (const b of v.bg) slab(b.x, b.y, b.w, b.h, '#c2c2c6', '#b0b0b5', 6);
+  for (const b of v.bg) slab(b.x, b.y, b.w, b.h, th.bg, th.bgSide, 6);
   ctx.restore();
 
   ctx.save(); ctx.translate(-cam.x, -cam.y);
@@ -270,11 +463,13 @@ function frame(v, o) {
   if (focus) {
     const g = ctx.createRadialGradient(focus.x + focus.w / 2, focus.y + focus.h / 2, 10,
       focus.x + focus.w / 2, focus.y + focus.h / 2, Math.max(W, H) * 0.45);
-    g.addColorStop(0, 'rgba(255,255,255,.8)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    g.addColorStop(0, th.glow); g.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = g; ctx.fillRect(cam.x, cam.y, W, H);
   }
 
-  if (v.grid) { scanTerrain(v.grid, S, cam.x, cam.y); drawTerrain(v.grid, S); }
+  if (v.grid) { scanTerrain(v.grid, S, cam.x, cam.y); drawTerrain(S, th); }
+  if (v.exit) exitGate(v.exit, th);
+  if (v.npcs) for (const n of v.npcs) drawNpc(n);
   for (const h of v.hearts) drawHeart(h.x, h.y + Math.sin(h.t * 4) * 3, 3);
 
   for (const q of parts) {
@@ -308,10 +503,73 @@ function frame(v, o) {
     ctx.textAlign = 'center'; ctx.fillStyle = t.c; ctx.fillText(t.txt, t.x, t.y);
   }
   ctx.globalAlpha = 1;
+
+  /* names over the people worth talking to, then whatever is being said */
+  if (v.npcs) for (const n of v.npcs) {
+    if (n.kind === 'god' || !n.name) continue;
+    nameTag(n.x + n.w / 2, n.y - 12, n.name, n.talked ? 'rgba(20,20,22,.45)' : '#141416');
+  }
+  if (v.prompt) {
+    const t = performance.now() / 1000;
+    ctx.font = 'bold 12px "Courier New",monospace'; ctx.textAlign = 'center';
+    const y = v.prompt.y - 30 + Math.sin(t * 5) * 3;
+    const w2 = ctx.measureText(v.prompt.label).width + 18;
+    ctx.fillStyle = '#141416'; ctx.fillRect(v.prompt.x - w2 / 2, y - 13, w2, 20);
+    ctx.fillStyle = '#fff'; ctx.fillText(v.prompt.label, v.prompt.x, y + 2);
+  }
+  if (v.aside) bubble({ text: v.aside.text, chars: 999, x: v.aside.x, y: v.aside.y, anchor: null, who: null, more: false });
+  if (v.bubble && v.bubble.anchor) bubble(v.bubble);
+
   ctx.restore();
   ctx.restore();
 
-  if (o.hud !== false) hud(v, o);
+  /* a line with nobody to say it is drawn over the whole scene instead */
+  if (v.bubble && !v.bubble.anchor) caption(v.bubble);
+
+  if (v.fade && v.fade.a > 0) {
+    ctx.globalAlpha = Math.min(1, v.fade.a); ctx.fillStyle = v.fade.col;
+    ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+  }
+
+  if (o.hud === false) return;
+  if (v.mode === 'story') storyHud(v, o); else hud(v, o);
+}
+
+/* one line of what to do, one bar of how you are doing */
+function storyHud(v, o) {
+  const me = o.me;
+  ctx.textAlign = 'left';
+  ctx.font = 'bold 11px "Courier New",monospace';
+  ctx.fillStyle = 'rgba(20,20,22,.5)';
+  ctx.fillText(v.title || '', 16, 26);
+
+  if (v.objective) {
+    ctx.font = 'bold 15px "Courier New",monospace';
+    ctx.fillStyle = '#141416';
+    ctx.fillText(v.objective, 16, 48);
+  }
+
+  if (me) {
+    ctx.fillStyle = 'rgba(20,20,22,.45)';
+    ctx.font = 'bold 10px "Courier New",monospace';
+    ctx.fillText('HANKY', 16, 68);
+    bar(16, 74, 120, 7, me.dead ? 0 : me.hp / (me.maxHp || 100), '#e8172a');
+  }
+
+  /* hints sit high, clear of the thumb controls */
+  if (v.banner && !v.bubble) {
+    ctx.textAlign = 'center'; ctx.font = 'bold 13px "Courier New",monospace';
+    const wid = Math.min(W - 24, ctx.measureText(v.banner).width + 26);
+    ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.fillRect(W / 2 - wid / 2, 96, wid, 26);
+    ctx.strokeStyle = '#141416'; ctx.lineWidth = 2; ctx.strokeRect(W / 2 - wid / 2 + 1, 97, wid - 2, 24);
+    ctx.fillStyle = '#141416'; ctx.fillText(v.banner, W / 2, 114);
+  }
+  if (v.down) {
+    ctx.textAlign = 'center'; ctx.font = 'bold 20px "Courier New",monospace';
+    ctx.fillStyle = '#141416'; ctx.fillText('DOWN AGAIN', W / 2, H / 2 - 10);
+    ctx.font = 'bold 12px "Courier New",monospace';
+    ctx.fillStyle = 'rgba(20,20,22,.6)'; ctx.fillText('you do not get to stay down', W / 2, H / 2 + 12);
+  }
 }
 
 function hud(v, o) {

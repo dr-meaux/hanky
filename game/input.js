@@ -7,17 +7,20 @@
 })(typeof self !== 'undefined' ? self : this, function () {
 'use strict';
 
-const state = { x: 0, jump: false, a1: false, a2: false };
-const edge = { jump: false, a1: false, a2: false };
+const state = { x: 0, jump: false, a1: false, a2: false, use: false };
+const edge = { jump: false, a1: false, a2: false, use: false };
 
 function press(key) { if (!state[key]) edge[key] = true; state[key] = true; }
 function release(key) { state[key] = false; }
 function takeEdges() {
-  const e = { jump: edge.jump, a1: edge.a1, a2: edge.a2 };
-  edge.jump = edge.a1 = edge.a2 = false;
+  const e = { jump: edge.jump, a1: edge.a1, a2: edge.a2, use: edge.use };
+  edge.jump = edge.a1 = edge.a2 = edge.use = false;
   return e;
 }
-function clear() { state.x = 0; state.jump = state.a1 = state.a2 = false; edge.jump = edge.a1 = edge.a2 = false; }
+function clear() {
+  state.x = 0; state.jump = state.a1 = state.a2 = state.use = false;
+  edge.jump = edge.a1 = edge.a2 = edge.use = false;
+}
 
 function attach() {
   const stick = document.getElementById('stick'), knob = document.getElementById('knob');
@@ -59,7 +62,7 @@ function attach() {
     el.addEventListener('mousedown', on);
     addEventListener('mouseup', off);
   }
-  bindBtn('bJump', 'jump'); bindBtn('bA1', 'a1'); bindBtn('bA2', 'a2');
+  bindBtn('bJump', 'jump'); bindBtn('bA1', 'a1'); bindBtn('bA2', 'a2'); bindBtn('bUse', 'use');
 
   addEventListener('keydown', e => {
     if (e.repeat || e.target.tagName === 'INPUT') return;
@@ -69,6 +72,7 @@ function attach() {
     if (k === 'w' || k === ' ') press('jump');
     if (k === 'j') press('a1');
     if (k === 'k') press('a2');
+    if (k === 'e' || k === 'enter') press('use');
   });
   addEventListener('keyup', e => {
     const k = e.key.toLowerCase();
@@ -77,6 +81,7 @@ function attach() {
     if (k === 'w' || k === ' ') release('jump');
     if (k === 'j') release('a1');
     if (k === 'k') release('a2');
+    if (k === 'e' || k === 'enter') release('use');
   });
   addEventListener('blur', clear);
 }
