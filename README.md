@@ -162,7 +162,11 @@ GitHub Pages serves the repository root of `main` directly, so pushing to
 cannot host a websocket server. Render is the multiplayer copy.
 
 When `index.html`, a `game/` file or an asset changes, bump `VERSION` in
-`sw.js` so installed copies pick up the new build.
+`sw.js` so installed copies pick up the new build. The worker serves the
+shell — html, js, css, manifest — network-first with the cache as the
+offline fallback, so a deploy can never leave a new page running old code;
+icons stay cache-first. The front screen prints the cached build name, so a
+stale copy shows itself rather than turning into mystery bugs.
 
 The icons are rendered from `icons/favicon.svg` and `icons/icon-maskable.svg`;
 regenerate the PNGs from those sources if you redraw the character.

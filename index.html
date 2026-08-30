@@ -33,7 +33,8 @@
   <div class="btn" id="bJump">JUMP</div>
   <div class="btn" id="bA1">SHOOT</div>
   <div class="btn" id="bA2">SLAM</div>
-  <div class="btn" id="bUse" hidden>TALK</div>
+  <!-- inline display beats any stale cached stylesheet -->
+  <div class="btn" id="bUse" style="display:none">TALK</div>
 </div>
 <button id="quit" class="pill" hidden>LOBBY</button>
 <div id="netInfo" hidden></div>
@@ -57,6 +58,7 @@
       </div>
       <p class="note" id="nameNote">The story and solo arena runs work offline. Multiplayer needs a HANKY server — open the game from the server itself and the address fills in on its own.</p>
       <p class="keys">Keyboard: A/D move &middot; W jump &middot; J shoot &middot; K slam &middot; J+K dance &middot; E talk</p>
+      <p class="keys" id="buildTag"></p>
     </section>
 
     <!-- story: pick a chapter -->

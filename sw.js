@@ -1,5 +1,5 @@
 /* HANKY service worker — bump VERSION to ship a new build. */
-const VERSION = 'v6';
+const VERSION = 'v7';
 const CACHE = 'hanky-' + VERSION;
 const ASSETS = [
   './',
@@ -33,20 +33,30 @@ self.addEventListener('activate', e => {
   );
 });
 
+/* The page and the code that runs it have to arrive as a set: serving a new
+   index.html next to a cached older script leaves buttons that do nothing and
+   elements with no styling. So the shell is network-first, falling back to the
+   cache when offline. Icons and images, which never change under the same
+   name, stay cache-first. */
+const SHELL = /\.(?:html|js|css|webmanifest)$/i;
+
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  const shell = req.mode === 'navigate' || SHELL.test(new URL(req.url).pathname);
 
-  /* Navigations: fresh copy when online, cached shell when not. */
-  if (req.mode === 'navigate') {
+  if (shell) {
     e.respondWith(
       fetch(req)
         .then(res => {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put('./index.html', copy));
+          if (res.ok && res.type === 'basic') {
+            const copy = res.clone();
+            caches.open(CACHE).then(c => c.put(req.mode === 'navigate' ? './index.html' : req, copy));
+          }
           return res;
         })
-        .catch(() => caches.match('./index.html', { ignoreSearch: true }))
+        .catch(() => caches.match(req, { ignoreSearch: true })
+          .then(hit => hit || (req.mode === 'navigate' ? caches.match('./index.html', { ignoreSearch: true }) : undefined)))
     );
     return;
   }

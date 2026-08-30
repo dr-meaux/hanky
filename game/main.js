@@ -35,13 +35,22 @@ function show(which) {
   overlay.classList.remove('hide');
   document.body.classList.add('hideControls');
   quitBtn.hidden = true;
-  $('bUse').hidden = true;
+  showUse(false);
+}
+
+/* the TALK button belongs to the story and nothing else; .btn carries
+   display:grid, so the attribute alone would not hide it */
+function showUse(on, label) {
+  const el = $('bUse');
+  el.style.display = on ? 'grid' : 'none';
+  if (on && label) el.textContent = label;
 }
 function showGame() {
   overlay.classList.add('hide');
   document.body.classList.remove('hideControls');
   quitBtn.hidden = false;
   quitBtn.textContent = story ? 'CHAPTERS' : online ? 'LOBBY' : 'MENU';
+  showUse(false);
 }
 /* the attack buttons wear your color, so you always know which block is you */
 function paintControls(colorId) {
@@ -147,9 +156,9 @@ function stepStory(dt, edges) {
   if (!out) return null;
 
   const t = Story.talking() ? null : Story.target();
-  const use = $('bUse');
-  use.hidden = !(t || Story.talking());
-  if (!use.hidden) use.textContent = Story.talking() ? 'NEXT' : t.label;
+  if (Story.talking()) showUse(true, 'NEXT');
+  else if (t) showUse(true, t.label);
+  else showUse(false);
 
   Render.fx(out.fx, out.me ? out.me.id : 0); out.fx.length = 0;
   if (Story.done()) showChapterEnd();
@@ -503,6 +512,17 @@ addEventListener('keydown', e => { if (e.key === 'Escape' && phase === 'play') q
 
 show('scrName');
 requestAnimationFrame(loop);
+
+/* Which build is actually cached, so a stale copy is visible rather than
+   mysterious: an old name here means the page is running old code. */
+if (typeof caches !== 'undefined' && caches.keys) {
+  caches.keys()
+    .then(keys => {
+      const mine = keys.filter(k => k.indexOf('hanky-') === 0);
+      if (mine.length) $('buildTag').textContent = 'build ' + mine.sort().join(' + ').replace(/hanky-/g, '');
+    })
+    .catch(() => {});
+}
 
 if ('serviceWorker' in navigator)
   addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
