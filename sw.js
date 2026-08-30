@@ -1,5 +1,5 @@
 /* BLOCK BRAWL service worker — bump VERSION to ship a new build. */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = 'block-brawl-' + VERSION;
 const ASSETS = [
   './',
