@@ -31,8 +31,10 @@ index.html             the whole game
 manifest.webmanifest   PWA metadata (name, colors, icons)
 sw.js                  service worker — caches the shell for offline play
 icons/                 favicon + app icons, drawn from the character
-.github/workflows/     Pages deployment
 ```
+
+Pages serves the repository root of `main` directly, so there is nothing to
+build and nothing to configure per change.
 
 ## Working on it
 
@@ -42,9 +44,9 @@ Serve the folder over HTTP (service workers do not run from `file://`):
 npx serve .
 ```
 
-Ship a change by pushing to `main` — the Pages workflow redeploys. When
-`index.html` or an asset changes, bump `VERSION` in `sw.js` so installed
-copies pick up the new build.
+Ship a change by pushing to `main` — that is the deploy. When `index.html`
+or an asset changes, bump `VERSION` in `sw.js` so installed copies pick up
+the new build.
 
 The icons are rendered from `icons/favicon.svg` and `icons/icon-maskable.svg`;
 regenerate the PNGs from those sources if you redraw the character.
