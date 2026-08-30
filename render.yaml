@@ -1,0 +1,16 @@
+# Render blueprint — https://render.com/docs/blueprint-spec
+# In Render: New → Blueprint → pick this repo. Everything below is the default
+# Node setup; the only thing worth changing is the region.
+services:
+  - type: web
+    name: hanky
+    runtime: node
+    plan: free              # free instances sleep after 15 idle minutes
+    region: frankfurt       # oregon | ohio | virginia | frankfurt | singapore
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

@@ -1,4 +1,4 @@
-/* BLOCK BRAWL — screens, lobby, and the loop that ties input, net and
+/* HANKY — screens, lobby, and the loop that ties input, net and
    rendering together. Solo play runs the simulation locally; online play
    renders the server's world, interpolated, with your own block predicted
    locally so the stick still feels immediate. */
@@ -93,7 +93,7 @@ function joinLobby() {
   const server = $('fServer').value.trim();
   Net.store.set('bb.name', name);
   Net.store.set('bb.room', room);
-  if (!server) { busy('NO SERVER', 'Enter the address of a BLOCK BRAWL server, or play solo.', true); return; }
+  if (!server) { busy('NO SERVER', 'Enter the address of a HANKY server, or play solo.', true); return; }
   online = true;
   busy('CONNECTING', 'Reaching ' + Net.normalize(server) + '…', true);
   Net.connect(server, { name, room, color: Net.store.get('bb.color') });
@@ -358,7 +358,10 @@ function loop(now) {
   if (phase === 'play' && online) {
     netInfo.hidden = false;
     netInfo.textContent = lobby.room + ' · ' + Net.ping + 'ms';
-  } else netInfo.hidden = true;
+  } else {
+    netInfo.hidden = true;
+    if (online) Net.heartbeat();
+  }
 
   requestAnimationFrame(loop);
 }

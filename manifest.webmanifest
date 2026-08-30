@@ -1,6 +1,6 @@
 {
-  "name": "BLOCK BRAWL",
-  "short_name": "BLOCK BRAWL",
+  "name": "HANKY",
+  "short_name": "HANKY",
   "description": "Four blocks, one arena. Team up against the waves or brawl each other over websockets — and play solo offline.",
   "id": "./",
   "start_url": "./",

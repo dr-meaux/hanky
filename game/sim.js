@@ -1,4 +1,4 @@
-/* BLOCK BRAWL — shared simulation.
+/* HANKY — shared simulation.
    Runs unchanged in the browser (solo play, client prediction) and in Node
    (the authoritative server). No DOM, no canvas, no timers: feed it inputs,
    call step(), read the world. */

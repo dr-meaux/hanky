@@ -1,4 +1,4 @@
-/* BLOCK BRAWL — authoritative game server.
+/* HANKY — authoritative game server.
    Serves the static game on the same port it accepts websockets on, so
    `npm start` and http://localhost:8080 is the whole setup. */
 'use strict';
@@ -279,5 +279,5 @@ setInterval(() => {
 }, 30000);
 
 server.listen(PORT, () => {
-  console.log('BLOCK BRAWL server on http://localhost:' + PORT);
+  console.log('HANKY server on http://localhost:' + PORT);
 });

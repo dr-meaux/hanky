@@ -1,4 +1,4 @@
-/* BLOCK BRAWL — everything that draws. Fed a plain view of the world, plus
+/* HANKY — everything that draws. Fed a plain view of the world, plus
    local-only sparkle (particles, floating text, screen shake). */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();

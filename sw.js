@@ -1,6 +1,6 @@
-/* BLOCK BRAWL service worker — bump VERSION to ship a new build. */
-const VERSION = 'v3';
-const CACHE = 'block-brawl-' + VERSION;
+/* HANKY service worker — bump VERSION to ship a new build. */
+const VERSION = 'v4';
+const CACHE = 'hanky-' + VERSION;
 const ASSETS = [
   './',
   './index.html',

@@ -1,0 +1,16 @@
+{
+  "name": "hanky",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HANKY — a tiny arena brawler for up to four players, over websockets",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

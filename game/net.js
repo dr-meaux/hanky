@@ -1,4 +1,4 @@
-/* BLOCK BRAWL — websocket client. Plain JSON over a plain WebSocket:
+/* HANKY — websocket client. Plain JSON over a plain WebSocket:
    the client sends input, the server sends the truth. */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -70,8 +70,16 @@ function sendInput(state, edges) {
   if (now - lastPing > 2000) { lastPing = now; send({ t: 'p', ts: now }); }
 }
 
+/* between rounds nothing else is sent — keep the socket warm so proxies
+   (Render's included) do not drop an idle lobby */
+function heartbeat() {
+  if (!connected()) return;
+  const now = performance.now();
+  if (now - lastPing > 15000) { lastPing = now; send({ t: 'p', ts: now }); }
+}
+
 const Net = {
-  on, connect, disconnect, connected, send, sendInput, defaultUrl, normalize,
+  on, connect, disconnect, connected, send, sendInput, heartbeat, defaultUrl, normalize,
   store: { get, set },
   get id() { return myId; },
   get ping() { return ping; }

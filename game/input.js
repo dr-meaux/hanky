@@ -1,4 +1,4 @@
-/* BLOCK BRAWL — thumbstick, buttons, keyboard.
+/* HANKY — thumbstick, buttons, keyboard.
    Holds current button state plus "was pressed since you last looked" edges,
    so a tap is never lost between two network sends. */
 (function (root, factory) {
