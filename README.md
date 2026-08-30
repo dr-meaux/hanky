@@ -78,6 +78,24 @@ jumps somebody measured out; a slam through the third step of a climb would
 strand you halfway up it. So you can trench the scrapyard all you like, and
 the route stays where the level put it.
 
+## What comes out of the hole
+
+Dig far enough and you stop taking ground away and start letting something up.
+A shaft bored all the way down to the bedrock has about a **one in two** chance
+of opening one of these, and you do not get to pick:
+
+| | |
+| --- | --- |
+| **Eruption** | lava wells up the shaft and spills over the lip. It burns whoever is standing in it — the block that dug the hole included — and it burns the enemies too. |
+| **Tentacles** | arms come up out of the hole and feel around. They hurt, and they will get hold of you for a moment; you go nowhere until they let go. |
+| **A way up** | a portal in the mouth of the shaft. Step in and you come out over one of the high ledges, falling. It takes a moment to recharge between rides. |
+| **Hot spring** | the crater fills with water that heals anyone standing in it. Players only — it does nothing for the enemies. |
+| **A palm tree** | two big coconuts at its foot, white doves leaving the opening at the top. It changes nothing. It is just there. |
+
+They fade after ten to twenty seconds, four can be open at once, and they keep
+their distance from each other. In co-op the wave rebuild fills the holes in,
+so they go with it. Story levels never open one.
+
 ## Playing together
 
 Open the game from a running HANKY server and the server address fills in by
@@ -151,6 +169,10 @@ of its own copy. Terrain is applied the moment it arrives rather than on the
 interpolation delay, because it is what you and the server both collide
 against. A co-op rebuild is a counter, not a payload: both ends already know
 the blueprint.
+
+Whatever comes up out of a hole is rolled on the server and rides along in the
+snapshot as nine numbers — the clients never roll for themselves, so everyone
+sees the same eruption in the same place.
 
 ```sh
 npm install

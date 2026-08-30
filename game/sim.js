@@ -24,6 +24,27 @@ const BEDROCK = 3;                          /* bottom rows nothing can break */
 /* how much each thing takes out */
 const DIG_BULLET = 9, DIG_SLAM = 40, DIG_DEATH = 58, DIG_BRUTE = 30, DIG_ROOM = 34;
 
+/* Bore a shaft clean through the ground and something may come up out of it.
+   Four of them change the fight; the palm is scenery and proud of it. */
+const VENTS = ['lava', 'tentacle', 'portal', 'bath', 'palm'];
+const VENT_LIFE = { lava: 13, tentacle: 11, portal: 18, bath: 20, palm: 26 };
+/* All of them stand on the bedrock, so height decides how far out of the
+   shaft they reach: lava and the tentacles come up over the lip, the bath
+   stays down in the crater where you have to climb in for it. */
+const VENT_BOX = {
+  lava:     { w: 108, h: 74 },
+  tentacle: { w: 104, h: 120 },
+  portal:   { w: 64,  h: 86 },
+  bath:     { w: 96,  h: 40 },
+  palm:     { w: 120, h: 200 }
+};
+/* Rolled per breakthrough, and a wide shaft breaks through more than once,
+   so this is not the odds per shaft — measured, a deliberate shaft pays off
+   about half the time. A chance, which is what it should be. */
+const VENT_CHANCE = 0.35;
+const VENT_MAX = 4, VENT_GAP = 2.5, VENT_APART = 150;
+const VENT_RISE = 0.55;                     /* it climbs out before it bites */
+
 /* the four player colors */
 const COLORS = [
   { id: 'red',    label: 'RED',    body: '#e8172a', hurt: '#ff8f9a', dark: '#a30f1d' },
@@ -119,14 +140,65 @@ function digGrid(g, x, y, r, top) {
 /* The simulation's way in: records the crater for the wire and throws debris.
    Rounded before it digs, not after — the wire carries whole numbers, so
    digging with anything else would leave every client a cell out of step. */
+/* how much of the deepest diggable row is still sealed under a crater —
+   any of it going is what "bored through the ground" means */
+const FLOOR_ROW = ROWS - BEDROCK - 1;
+function sealedUnder(g, c0, c1) {
+  let n = 0;
+  for (let c = c0; c <= c1; c++) if (cellSolid(g, c, FLOOR_ROW)) n++;
+  return n;
+}
+
 function carve(w, x, y, r) {
   x = Math.round(x); y = Math.round(y); r = Math.round(r);
+  const c0 = Math.max(0, Math.floor((x - r) / CELL)), c1 = Math.min(COLS - 1, Math.floor((x + r) / CELL));
+  const before = sealedUnder(w.grid, c0, c1);
   const n = digGrid(w.grid, x, y, r, w.digTop);
   if (!n) return 0;
   w.dig.push([x, y, r]);
   burst(w, x, y, '#6b6b70', Math.min(16, 3 + Math.round(n / 3)));
+  if (before && sealedUnder(w.grid, c0, c1) < before) openVent(w, x);
   return n;
 }
+
+/* ---------------- what comes out of the hole ---------------- */
+
+const VENT_FLOOR = (ROWS - BEDROCK) * CELL;   /* the top of the bedrock */
+const VENT_SOIL = Math.floor((WH - GROUND_H) / CELL) * CELL;   /* the old ground line */
+/* what each one stands on: the palm is planted up at ground level so its
+   coconuts sit at your feet instead of down the shaft */
+const ventFoot = kind => (kind === 'palm' ? VENT_SOIL : VENT_FLOOR);
+
+/* Rolled on the server (or the solo sim) and shipped in the snapshot — the
+   clients replay craters, they never roll for themselves. */
+function openVent(w, x) {
+  if (w.mode === 'story') return;             /* scripted levels stay as written */
+  if (w.time < w.ventT || w.vents.length >= VENT_MAX) return;
+  for (const v of w.vents) if (Math.abs(v.x - x) < VENT_APART) return;
+  w.ventT = w.time + VENT_GAP;
+  if (Math.random() > VENT_CHANCE) return;
+
+  const kind = VENTS[Math.floor(Math.random() * VENTS.length)];
+  const box = VENT_BOX[kind];
+  const vx = Math.max(box.w / 2, Math.min(WW - box.w / 2, Math.round(x)));
+  w.vents.push({
+    id: w.nextId++, kind, x: vx, y: ventFoot(kind) - box.h, w: box.w, h: box.h,
+    t: 0, life: VENT_LIFE[kind], cool: 0, seed: 1 + Math.floor(Math.random() * 900)
+  });
+  burst(w, vx, VENT_FLOOR - 10, kind === 'lava' ? '#ff3b16' : kind === 'bath' ? '#2f9bd8' : '#6b6b70', 14);
+  shake(w, kind === 'lava' ? 14 : 8);
+  popText(w, vx, VENT_FLOOR - box.h - 16, VENT_SHOUT[kind], '#141416');
+}
+
+const VENT_SHOUT = {
+  lava: 'ERUPTION', tentacle: 'SOMETHING IS DOWN THERE',
+  portal: 'A WAY UP', bath: 'HOT SPRING', palm: '???'
+};
+
+const ventBox = v => ({ x: v.x - v.w / 2, y: v.y, w: v.w, h: v.h });
+
+/* how far out of the hole it has climbed, 0…1 — nothing bites while rising */
+const ventUp = v => Math.min(1, v.t / VENT_RISE);
 
 /* first solid point along a segment, for anything moving faster than a cell */
 function rayHit(g, x0, y0, x1, y1) {
@@ -145,6 +217,8 @@ function rebuildTerrain(w) {
   w.grid.set(baseTerrain(w.plats));
   w.rb++;
   w.dig.length = 0;                          /* craters before this are moot */
+  w.vents.length = 0;                        /* and the holes they came out of */
+  for (const p of w.players) { p.grab = 0; p.grabCd = 0; }
   for (const p of w.players) {
     if (p.dead || p.out) continue;
     carve(w, p.x + p.w / 2, p.y + p.h / 2, DIG_ROOM);   /* nobody gets walled in */
@@ -197,6 +271,7 @@ function createWorld(mode, seed) {
        bring their own. */
     plats,
     grid: baseTerrain(plats), dig: [], rb: 0, digTop: 0,
+    vents: [], ventT: 0,
     bg: (seed && seed.bg) || buildBg(),
     players: [], enemies: [], bullets: [], hearts: [],
     fx: [], nextId: 1,
@@ -215,6 +290,7 @@ function makePlayer(w, opt) {
     cd1: 0, cd2: 0, hurtFlash: 0, dance: 0, cheer: 0, danceLock: false,
     comboOn: 0, comboN: 0, comboT: 0,
     taunt: 0, tauntOn: 0, held: 0, heldBy: 0,
+    grab: 0, grabX: 0, grabCd: 0, bathT: 0,
     dead: false, respawn: 0, lives: w.mode === 'vs' ? VS_LIVES : Infinity,
     score: 0, kills: 0, deaths: 0, out: false,
     in: { x: 0, jump: false, a1: false, a2: false },
@@ -232,8 +308,10 @@ function getPlayer(w, id) { return w.players.find(p => p.id === id); }
 function spawnPoint(w, p) {
   /* pick a platform, preferring one nobody is standing on */
   let best = null, bestD = -1;
+  /* ledges first, but a level that is nothing but floor still has to work */
+  const pick = w.plats.length > 1 ? 1 : 0;
   for (let i = 0; i < 6; i++) {
-    const pl = w.plats[1 + Math.floor(Math.random() * (w.plats.length - 1))];
+    const pl = w.plats[pick + Math.floor(Math.random() * (w.plats.length - pick))];
     const x = pl.x + 20 + Math.random() * Math.max(10, pl.w - 60), y = pl.y - 90;
     let d = 1e9;
     for (const o of w.players) if (o !== p && !o.dead) d = Math.min(d, Math.hypot(o.x - x, o.y - y));
@@ -488,6 +566,19 @@ function stepHeld(w, p, dt) {
   if (p.held <= 0) releaseHold(p);
 }
 
+/* in a tentacle's fist: rooted, dragged toward the hole, still falling */
+function stepGrabbed(w, p, dt) {
+  edgesOf(p);                                  /* buttons go nowhere while held */
+  p.grab -= dt;
+  p.vx += ((p.grabX - (p.x + p.w / 2)) * 2.2 - p.vx) * Math.min(1, dt * 6);
+  p.dance = 0; p.melee = false;
+  moveBody(w, p, dt);
+  p.tilt = Math.sin(w.time * 26) * 0.12;
+  if (p.iframe > 0) p.iframe -= dt;
+  if (p.hurtFlash > 0) p.hurtFlash -= dt;
+  if (p.grab <= 0) { p.grab = 0; p.grabCd = 2.2; }
+}
+
 /* the attacker: glued to the victim's back for the duration */
 function stepTaunt(w, p, dt) {
   edgesOf(p);
@@ -503,6 +594,7 @@ function stepTaunt(w, p, dt) {
 
 function killPlayer(w, p, by) {
   p.hp = 0; p.dead = true; p.deaths++; p.melee = false; p.dance = 0;
+  p.grab = 0; p.grabCd = 0;
   p.comboOn = 0; p.comboN = 0; p.comboT = 0;
   if (p.taunt > 0) endTaunt(w, p);
   if (p.held > 0) releaseHold(p);
@@ -525,6 +617,7 @@ function revive(w, p, hp) {
   p.dead = false; p.hp = hp || p.maxHp * 0.6; p.iframe = 1.4; p.jumps = 2;
   p.melee = false; p.meleeT = 0; p.hitDone = false; p.dance = 0; p.respawn = 0;
   p.taunt = 0; p.tauntOn = 0; p.held = 0; p.heldBy = 0;
+  p.grab = 0; p.grabCd = 0;
   p.comboOn = 0; p.comboN = 0; p.comboT = 0;
   burst(w, p.x + p.w / 2, p.y + p.h / 2, colorOf(p.color).body, 12);
 }
@@ -603,6 +696,8 @@ function step(w, dt) {
       if (p.y > WH + 300) killPlayer(w, p, null);   /* pinned over a pit still counts */
       continue;
     }
+    if (p.grabCd > 0) p.grabCd -= dt;
+    if (p.grab > 0) { stepGrabbed(w, p, dt); continue; }
     movePlayer(w, p, dt, edgesOf(p));
 
     /* slam */
@@ -727,6 +822,9 @@ function step(w, dt) {
   }
   w.enemies = w.enemies.filter(e => !e.dead);
 
+  /* what came up out of the holes */
+  stepVents(w, dt);
+
   /* hearts */
   for (const h of w.hearts) {
     h.t += dt; h.vy += G * 0.55 * dt;
@@ -786,6 +884,88 @@ function scoreboard(w) {
   })).sort((a, b) => (b.kills - a.kills) || (b.score - a.score));
 }
 
+/* ---------------- vents ---------------- */
+
+/* Lava burns whatever stands in it — the block that opened it included, and
+   the enemies too. The bath is the other way round: players only. The palm
+   does nothing at all, on purpose. */
+function stepVents(w, dt) {
+  for (const v of w.vents) {
+    v.t += dt; v.life -= dt;
+    if (v.life <= 0) { v.dead = true; continue; }
+    if (v.kind === 'palm') continue;             /* scenery, and proud of it */
+    const up = ventUp(v);
+    if (up < 1) continue;                        /* still climbing out */
+    const box = ventBox(v);
+
+    if (v.kind === 'lava') {
+      for (const p of w.players) {
+        if (p.dead || p.out || !overlap(box, p)) continue;
+        const away = (p.x + p.w / 2) < v.x ? -1 : 1;
+        hurtPlayer(w, p, 14, away * 220, -420, null);
+      }
+      for (const e of w.enemies) {
+        if (e.dead || !overlap(box, e)) continue;
+        e.hp -= 60 * dt; e.flash = 0.12; e.vy = Math.min(e.vy, -120);
+        if (e.hp <= 0) killEnemy(w, e, null);
+      }
+      if (Math.random() < dt * 14) burst(w, v.x + (Math.random() - 0.5) * v.w, v.y, '#ff8a2b', 2);
+
+    } else if (v.kind === 'tentacle') {
+      for (const p of w.players) {
+        if (p.dead || p.out || p.grab > 0 || !overlap(box, p)) continue;
+        const away = (p.x + p.w / 2) < v.x ? -1 : 1;
+        const hit = hurtPlayer(w, p, 9, away * 180, -260, null);
+        /* a short grapple, then long enough off to walk away from it */
+        if (hit && p.grabCd <= 0) {
+          p.grab = 0.9; p.grabX = v.x; p.grabCd = 0;
+          popText(w, p.x + p.w / 2, p.y - 26, 'GRABBED', colorOf(p.color).body, p.id);
+          shake(w, 10, p.id);
+        }
+      }
+      for (const e of w.enemies) {
+        if (e.dead || !overlap(box, e)) continue;
+        e.hp -= 26 * dt; e.flash = 0.1;
+        if (e.hp <= 0) killEnemy(w, e, null);
+      }
+
+    } else if (v.kind === 'portal') {
+      if (v.cool > 0) { v.cool -= dt; continue; }
+      for (const p of w.players) {
+        if (p.dead || p.out || p.grab > 0 || !overlap(box, p)) continue;
+        topOut(w, p);
+        v.cool = 1.2;                            /* it needs a moment to recharge */
+        burst(w, v.x, v.y + v.h / 2, '#dfe7ff', 14);
+        break;
+      }
+
+    } else if (v.kind === 'bath') {
+      for (const p of w.players) {
+        if (p.dead || p.out || !overlap(box, p)) continue;
+        if (p.hp >= p.maxHp) continue;
+        p.hp = Math.min(p.maxHp, p.hp + 16 * dt);
+        p.bathT = (p.bathT || 0) + dt;
+        if (p.bathT >= 1) { p.bathT = 0; popText(w, p.x + p.w / 2, p.y - 18, '+', '#2f9bd8', p.id); }
+      }
+    }
+  }
+  w.vents = w.vents.filter(v => !v.dead);
+}
+
+/* out of the hole and back into the sky, over one of the high ledges */
+function topOut(w, p) {
+  const high = w.plats.slice(1).sort((a, b) => a.y - b.y).slice(0, 4);
+  const pl = high[Math.floor(Math.random() * high.length)] || w.plats[0];
+  p.x = pl.x + 20 + Math.random() * Math.max(10, pl.w - 60);
+  p.y = Math.max(20, pl.y - 320);
+  p.vx = 0; p.vy = 0; p.jumps = 2;
+  p.grab = 0; p.melee = false; p.dance = 0;
+  p.iframe = Math.max(p.iframe, 1.1);
+  p.teleport = (p.teleport || 0) + 1;            /* tells a client to resnap */
+  burst(w, p.x + p.w / 2, p.y + p.h / 2, '#dfe7ff', 14);
+  popText(w, p.x + p.w / 2, p.y - 24, 'TOPSIDE', '#141416', p.id);
+}
+
 /* ---------------- snapshots ---------------- */
 /* Compact arrays keep the wire small; both ends agree on the index order here. */
 
@@ -804,7 +984,7 @@ function encode(w) {
       (p.melee ? 1 : 0) | (p.dead ? 2 : 0) | (p.out ? 4 : 0) | (p.onGround ? 8 : 0),
       p.lives === Infinity ? -1 : Math.max(0, p.lives), p.score, p.kills,
       Math.ceil(Math.max(0, p.respawn)), p.teleport,
-      r1(p.taunt), r1(p.held)
+      r1(p.taunt), r1(p.held), r1(p.grab)
     ]),
     e: w.enemies.map(e => [
       e.id, KINDS.indexOf(e.kind), Math.round(e.x), Math.round(e.y), Math.round(e.vx),
@@ -812,6 +992,10 @@ function encode(w) {
     ]),
     b: w.bullets.map(b => [b.id, Math.round(b.x), Math.round(b.y), Math.round(b.vx), Math.round(b.vy), b.color]),
     h: w.hearts.map(h => [h.id, Math.round(h.x), Math.round(h.y), r1(h.t)]),
+    vt: w.vents.map(v => [
+      v.id, VENTS.indexOf(v.kind), Math.round(v.x), Math.round(v.y),
+      v.w, v.h, r1(v.t), r1(v.life), v.seed
+    ]),
     fx: w.fx
   };
 }
@@ -826,7 +1010,7 @@ function decode(s) {
       iframe: a[12], hurtFlash: a[13],
       melee: !!(a[14] & 1), dead: !!(a[14] & 2), out: !!(a[14] & 4), onGround: !!(a[14] & 8),
       lives: a[15] < 0 ? null : a[15], score: a[16], kills: a[17], respawn: a[18], teleport: a[19],
-      taunt: a[20], held: a[21],
+      taunt: a[20], held: a[21], grab: a[22],
       w: 26, h: 46, aim: a[4] > 0 ? 0 : Math.PI
     })),
     enemies: s.e.map(a => ({
@@ -836,6 +1020,10 @@ function decode(s) {
     })),
     bullets: s.b.map(a => ({ id: a[0], x: a[1], y: a[2], vx: a[3], vy: a[4], color: a[5] })),
     hearts: s.h.map(a => ({ id: a[0], x: a[1], y: a[2], t: a[3] })),
+    vents: (s.vt || []).map(a => ({
+      id: a[0], kind: VENTS[a[1]], x: a[2], y: a[3], w: a[4], h: a[5],
+      t: a[6], life: a[7], seed: a[8]
+    })),
     fx: s.fx || []
   };
 }
@@ -846,6 +1034,7 @@ return {
   colorOf, createWorld, addPlayer, removePlayer, getPlayer, spawnPoint, revive,
   step, movePlayer, edgesOf, moveBody, overlap, scoreboard, encode, decode, buildBg,
   makeEnemy, dazeEnemy, burst, popText, shake, dropHeart,
-  baseTerrain, packTerrain, unpackTerrain, digGrid, solidAt, cellSolid
+  baseTerrain, packTerrain, unpackTerrain, digGrid, solidAt, cellSolid,
+  VENTS, VENT_RISE
 };
 });

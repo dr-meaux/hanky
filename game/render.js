@@ -108,6 +108,248 @@ function drawTerrain(S, th) {
   for (let i = 0; i < caps.n; i++) ctx.fillRect(caps.x[i], caps.y[i], caps.w[i], 3);
 }
 
+/* ---------------- what comes out of the holes ---------------- */
+/* Same flat blocks and hard shadows as everything else, only these arrive
+   in colour. `seed` keeps each one looking like itself on every client. */
+
+const rnd = (seed, i) => { const t = Math.sin(seed * 12.9898 + i * 78.233) * 43758.5453; return t - Math.floor(t); };
+
+/* Clip to the empty cells of the shaft so a pool fills the hole somebody
+   actually dug instead of being painted flat over the ground beside it. */
+const open = { x: [], y: [], w: [], n: 0 };
+
+function clipToHole(grid, S, x0, y0, w, h) {
+  const CELL = S.CELL, COLS = S.COLS, ROWS = S.ROWS;
+  const c0 = Math.max(0, Math.floor(x0 / CELL)), c1 = Math.min(COLS - 1, Math.ceil((x0 + w) / CELL) - 1);
+  const r0 = Math.max(0, Math.floor(y0 / CELL)), r1 = Math.min(ROWS - 1, Math.ceil((y0 + h) / CELL) - 1);
+  open.n = 0;
+  for (let r = r0; r <= r1; r++) {
+    const row = r * COLS;
+    let st = -1;
+    for (let c = c0; c <= c1 + 1; c++) {
+      const free = c <= c1 && grid[row + c] !== 1;
+      if (free && st < 0) st = c;
+      else if (!free && st >= 0) {
+        const i = open.n++;
+        open.x[i] = st * CELL; open.y[i] = r * CELL; open.w[i] = (c - st) * CELL;
+        st = -1;
+      }
+    }
+  }
+  if (!open.n) return false;
+  ctx.save();
+  ctx.beginPath();
+  for (let i = 0; i < open.n; i++) ctx.rect(open.x[i], open.y[i], open.w[i], CELL);
+  ctx.clip();
+  return true;
+}
+
+/* a liquid surface: flat fill, blocky crust, a wobble along the top */
+function pool(x, y, w, h, body, crust, t, seed, wob) {
+  ctx.fillStyle = body;
+  ctx.fillRect(x, y + 3, w, h - 3);
+  const step = 8;
+  for (let i = 0; i * step < w; i++) {
+    const bw = Math.min(step, w - i * step);
+    const lift = Math.round(Math.sin(t * 3.4 + i * 0.9 + seed) * wob);
+    ctx.fillStyle = body; ctx.fillRect(x + i * step, y + 3 + lift, bw, 4);
+    ctx.fillStyle = crust; ctx.fillRect(x + i * step, y + lift, bw, 4);
+  }
+}
+
+function drawLava(v, t, grid, S) {
+  const x = v.x - v.w / 2, up = Math.min(1, v.t / 0.55);
+  const h = Math.max(4, v.h * up), y = v.y + v.h - h;
+  /* the glow it throws on the walls of its own shaft */
+  const g = ctx.createRadialGradient(v.x, y + h / 2, 6, v.x, y + h / 2, v.w);
+  g.addColorStop(0, 'rgba(255,120,40,.45)'); g.addColorStop(1, 'rgba(255,120,40,0)');
+  ctx.fillStyle = g; ctx.fillRect(v.x - v.w, y - v.w / 2, v.w * 2, h + v.w);
+  if (clipToHole(grid, S, x, y, v.w, h)) {
+    pool(x, y, v.w, h, '#ff3b16', '#ffa22b', t, v.seed, 3);
+    ctx.restore();
+  }
+  /* spatter thrown up out of the mouth */
+  for (let i = 0; i < 5; i++) {
+    const ph = (t * 1.3 + rnd(v.seed, i)) % 1;
+    const bx = x + 10 + rnd(v.seed, i + 40) * (v.w - 20);
+    const by = y - ph * 46, s = 5 - ph * 3;
+    ctx.fillStyle = 'rgba(255,162,43,' + (1 - ph).toFixed(2) + ')';
+    ctx.fillRect(bx, by, s, s);
+  }
+}
+
+function drawBath(v, t, grid, S) {
+  const x = v.x - v.w / 2, up = Math.min(1, v.t / 0.55);
+  const h = Math.max(4, v.h * up), y = v.y + v.h - h;
+  if (clipToHole(grid, S, x, y, v.w, h)) {
+    pool(x, y, v.w, h, 'rgba(47,155,216,.82)', '#8fd6f2', t, v.seed, 2);
+    ctx.restore();
+  }
+  /* steam off a hot spring */
+  for (let i = 0; i < 4; i++) {
+    const ph = (t * 0.5 + rnd(v.seed, i)) % 1;
+    const bx = x + 12 + rnd(v.seed, i + 20) * (v.w - 24);
+    ctx.fillStyle = 'rgba(255,255,255,' + (0.34 * (1 - ph)).toFixed(2) + ')';
+    ctx.fillRect(bx, y - ph * 40, 6, 6);
+  }
+}
+
+/* one arm: a chain of blocks that narrows, curling as it goes */
+function tentacle(bx, by, len, ang, curl, t, thick) {
+  const segs = 9;
+  let x = bx, y = by, a = ang;
+  for (let i = 0; i < segs; i++) {
+    const f = 1 - i / segs, s = Math.max(3, thick * f);
+    ctx.fillStyle = 'rgba(20,20,22,.2)';
+    ctx.fillRect(x - s / 2 + 3, y - s / 2 + 3, s, s);
+    ctx.fillStyle = i % 2 ? '#5b3570' : '#4a2a5e';
+    ctx.fillRect(x - s / 2, y - s / 2, s, s);
+    if (i > 2 && i % 2 === 0) {                     /* suckers down one side */
+      ctx.fillStyle = '#c9a6d8';
+      ctx.fillRect(x - s / 2 + 1, y - s / 2 + 1, 3, 3);
+    }
+    a += curl + Math.sin(t * 4 + i * 0.7) * 0.10;
+    const step = (len / segs);
+    x += Math.cos(a) * step; y += Math.sin(a) * step;
+  }
+}
+
+function drawTentacles(v, t) {
+  const up = Math.min(1, v.t / 0.55), base = v.y + v.h, n = 5;
+  for (let i = 0; i < n; i++) {
+    /* spread across the mouth so they read as several arms, not one mass */
+    const off = ((i + 0.5) / n - 0.5) * v.w * 0.86 + (rnd(v.seed, i) - 0.5) * 10;
+    const lean = off / v.w * 1.7 + Math.sin(t * 1.6 + i * 1.3) * 0.42;
+    tentacle(v.x + off, base - 4, v.h * (0.72 + rnd(v.seed, i + 10) * 0.34) * up,
+      -Math.PI / 2 + lean, (rnd(v.seed, i + 30) - 0.5) * 0.2, t + i * 0.8, 11);
+  }
+}
+
+function drawPortal(v, t) {
+  const up = Math.min(1, v.t / 0.55);
+  const rx = (v.w / 2) * up, ry = (v.h / 2) * up, cy = v.y + v.h / 2;
+  ctx.save(); ctx.translate(v.x, cy); ctx.scale(1, ry / Math.max(1, rx));
+  ctx.fillStyle = 'rgba(223,231,255,.35)';
+  ctx.beginPath(); ctx.arc(0, 0, rx + 8, 0, 7); ctx.fill();
+  ctx.fillStyle = '#141416';
+  ctx.beginPath(); ctx.arc(0, 0, rx, 0, 7); ctx.fill();
+  /* a couple of rings turning inside the mouth */
+  for (let i = 1; i <= 3; i++) {
+    ctx.strokeStyle = 'rgba(223,231,255,' + (0.9 - i * 0.22).toFixed(2) + ')';
+    ctx.lineWidth = 3;
+    const a0 = t * (1.6 + i * 0.8) + i;
+    ctx.beginPath(); ctx.arc(0, 0, rx * (1 - i * 0.24), a0, a0 + 3.6); ctx.stroke();
+  }
+  ctx.restore();
+  /* the sparks it drags upward, which is where it sends you */
+  for (let i = 0; i < 5; i++) {
+    const ph = (t * 0.9 + rnd(v.seed, i)) % 1;
+    ctx.fillStyle = 'rgba(223,231,255,' + (1 - ph).toFixed(2) + ')';
+    ctx.fillRect(v.x - 12 + rnd(v.seed, i + 5) * 24, cy - ph * 70, 4, 4);
+  }
+}
+
+/* Pure scenery: a palm planted on the lip of the hole, two big coconuts at
+   its foot, and white doves leaving the opening at the top. It does nothing
+   and blocks nothing — it is a postcard that turned up in a fight. */
+function drawPalm(v, t) {
+  const up = Math.min(1, v.t / 0.55);
+  const base = v.y + v.h, h = v.h * up, top = base - h;
+  const sway = Math.sin(t * 0.6) * 0.12;
+  const bend = f => Math.sin(f * 1.35 + sway) * 26;      /* the trunk's lean */
+  const cx = v.x + bend(1);
+
+  /* trunk: stacked blocks, narrowing and leaning as they climb */
+  for (let i = 0; i <= 13; i++) {
+    const f = i / 13, y = base - h * f, tw = 19 - f * 7;
+    ctx.fillStyle = 'rgba(255,255,255,.45)';
+    ctx.fillRect(v.x + bend(f) - tw / 2 + 5, y - h / 13 + 5, tw, h / 13 + 2);
+  }
+  for (let i = 0; i <= 13; i++) {
+    const f = i / 13, y = base - h * f, tw = 19 - f * 7;
+    ctx.fillStyle = i % 2 ? '#8a683f' : '#70522f';
+    ctx.fillRect(v.x + bend(f) - tw / 2, y - h / 13, tw, h / 13 + 2);
+  }
+
+  /* Six fronds arcing out of the crown and drooping at the tips. The step is
+     shorter than the block, so the segments overlap into one leaf instead of
+     a dotted line. Drawn shadows-first so no frond shades its neighbour. */
+  const FR = 10, LIFT = [1.05, 0.62, 0.18];
+  const frond = (i, paint) => {
+    const side = i < 3 ? -1 : 1, lift = LIFT[i % 3];
+    let fx = cx, fy = top + 6;
+    let fa = side > 0 ? -lift : Math.PI + lift;
+    const droop = 0.17 + (2 - (i % 3)) * 0.02;
+    for (let k = 0; k < FR; k++) {
+      const s2 = 15 - k * 1.1;
+      paint(fx, fy, s2, k);
+      fa += side * droop + Math.sin(t * 1.2 + i) * 0.01;
+      fx += Math.cos(fa) * 9; fy += Math.sin(fa) * 9;
+    }
+  };
+  for (let i = 0; i < 6; i++) frond(i, (fx, fy, s2) => {
+    ctx.fillStyle = 'rgba(255,255,255,.4)';
+    ctx.fillRect(fx - s2 / 2 + 4, fy - s2 / 2 + 4, s2, s2);
+  });
+  for (let i = 0; i < 6; i++) frond(i, (fx, fy, s2, k) => {
+    ctx.fillStyle = k < 4 ? '#3ab557' : k < 7 ? '#2fa249' : '#24893a';
+    ctx.fillRect(fx - s2 / 2, fy - s2 / 2, s2, s2);
+  });
+
+  /* the opening the birds come out of */
+  ctx.fillStyle = '#141416'; ctx.fillRect(cx - 11, top - 4, 22, 12);
+  ctx.fillStyle = '#3d2816'; ctx.fillRect(cx - 8, top - 1, 16, 6);
+  ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.fillRect(cx - 11, top - 4, 22, 3);
+
+  /* Two big coconuts at the foot of the trunk, sat just clear of the ground
+     line — brown on dark grey needs the light rim to read at all. */
+  for (const dx of [-25, 25]) {
+    const bx = v.x + dx, by = base - 32;
+    ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.fillRect(bx - 14 + 5, by + 5, 28, 28);
+    ctx.fillStyle = '#e6dcc8'; ctx.fillRect(bx - 15, by - 1, 30, 30);     /* rim */
+    ctx.fillStyle = '#6b4a2a'; ctx.fillRect(bx - 14, by, 28, 28);
+    ctx.fillStyle = '#8a6234'; ctx.fillRect(bx - 10, by + 4, 12, 6);      /* husk shine */
+    ctx.fillStyle = '#2b1c0f';                                            /* the three eyes */
+    ctx.fillRect(bx - 8, by + 14, 5, 5);
+    ctx.fillRect(bx + 3, by + 14, 5, 5);
+    ctx.fillRect(bx - 3, by + 21, 5, 4);
+  }
+
+  /* doves leaving the opening, forever */
+  for (let i = 0; i < 6; i++) {
+    const ph = (t * 0.3 + rnd(v.seed, i)) % 1;
+    const ang = -0.5 - rnd(v.seed, i + 7) * 2.1;
+    const dx = cx + Math.cos(ang) * ph * 190;
+    const dy = top - 2 + Math.sin(ang) * ph * 150 + Math.sin(t * 3 + i) * 4;
+    const flap = Math.sin(t * 12 + i * 2) > 0 ? 1 : -1;
+    ctx.globalAlpha = Math.max(0, Math.min(1, (1 - ph) * 1.6));
+    ctx.fillStyle = 'rgba(20,20,22,.18)';
+    ctx.fillRect(dx - 4 + 3, dy - 2 + 3, 10, 5);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(dx - 4, dy - 2, 10, 5);                       /* body */
+    ctx.fillRect(dx - 9, dy - 2 - flap * 4, 8, 4);             /* wings */
+    ctx.fillRect(dx + 4, dy - 2 + flap * 4, 8, 4);
+    ctx.fillStyle = '#f0a010'; ctx.fillRect(dx + 6, dy - 1, 3, 2);   /* beak */
+    ctx.globalAlpha = 1;
+  }
+}
+
+/* Pools, the portal and the palm sit behind the blocks standing in them;
+   the tentacles are drawn over the top, because they have hold of you. */
+function drawVentsBack(list, grid, S) {
+  const t = performance.now() / 1000;
+  for (const v of list) {
+    if (v.kind === 'lava') drawLava(v, t, grid, S);
+    else if (v.kind === 'bath') drawBath(v, t, grid, S);
+    else if (v.kind === 'portal') drawPortal(v, t);
+    else if (v.kind === 'palm') drawPalm(v, t);
+  }
+}
+function drawVentsFront(list) {
+  const t = performance.now() / 1000;
+  for (const v of list) if (v.kind === 'tentacle') drawTentacles(v, t);
+}
+
 function bar(x, y, w, h, frac, col) {
   const seg = 3, gap = 1.5, n = Math.floor(w / (seg + gap));
   const on = Math.round(n * Math.max(0, Math.min(1, frac)));
@@ -131,7 +373,7 @@ function arm(cx, cy, ang, len, thick) {
 function drawPlayer(p, col, isMe) {
   const cy = p.y + p.h / 2;
   const dancing = p.dance > 0, cheering = p.cheer > 0 && !p.melee && p.shootT <= 0;
-  const taunting = p.taunt > 0, pinned = p.held > 0;
+  const taunting = p.taunt > 0, pinned = p.held > 0, grabbed = p.grab > 0;
   const now = performance.now() / 1000;
   let tilt = p.tilt, bob = 0, push = 0;
   if (taunting) {
@@ -141,6 +383,7 @@ function drawPlayer(p, col, isMe) {
     tilt = 0.12 + Math.max(0, t) * 0.14;
     bob = -Math.max(0, t) * 3;
   } else if (pinned) { tilt = Math.sin(now * 16) * 0.05; bob = 0; }
+  else if (grabbed) { tilt = Math.sin(now * 24) * 0.22; bob = Math.sin(now * 19) * 3; }
   else if (dancing) { tilt = Math.sin(now * 13) * 0.42; bob = Math.abs(Math.sin(now * 13)) * -7; }
   else if (cheering) { tilt = Math.sin(now * 22) * 0.2; bob = Math.abs(Math.sin(now * 18)) * -4; }
   const cx = p.x + p.w / 2 + push;
@@ -173,6 +416,10 @@ function drawPlayer(p, col, isMe) {
     /* arms out, going nowhere */
     arm(cx - 9, sy, Math.PI / 2 + 1.15, 14, 3.4);
     arm(cx + 9, sy, Math.PI / 2 - 1.15, 14, 3.4);
+  } else if (grabbed) {
+    /* both arms up, thrashing */
+    arm(cx - 8, sy, -Math.PI / 2 - 0.6 + Math.sin(now * 24) * 0.5, 16, 3.6);
+    arm(cx + 8, sy, -Math.PI / 2 + 0.6 - Math.sin(now * 24) * 0.5, 16, 3.6);
   } else if (dancing) {
     arm(cx - 8, sy, -Math.PI / 2 + Math.sin(now * 13) * 0.9, 17, 3.6);
     arm(cx + 8, sy, -Math.PI / 2 - Math.sin(now * 13) * 0.9, 17, 3.6);
@@ -209,6 +456,7 @@ function drawPlayer(p, col, isMe) {
   ctx.fillStyle = '#141416'; ctx.fillText(p.name || '', bx, p.y - 22);
   ctx.font = 'bold 12px "Courier New",monospace';
   if (pinned) { ctx.fillStyle = col.dark; ctx.fillText('~ SMASHED ~', bx, p.y - 34); }
+  else if (grabbed) { ctx.fillStyle = '#5b3570'; ctx.fillText('~ HELP ~', bx, p.y - 34); }
   else if (p.dance > 0) { ctx.fillStyle = col.dark; ctx.fillText('~ DANCE ~', bx, p.y - 34); }
 }
 
@@ -468,6 +716,7 @@ function frame(v, o) {
   }
 
   if (v.grid) { scanTerrain(v.grid, S, cam.x, cam.y); drawTerrain(S, th); }
+  if (v.vents && v.grid) drawVentsBack(v.vents, v.grid, S);
   if (v.exit) exitGate(v.exit, th);
   if (v.npcs) for (const n of v.npcs) drawNpc(n);
   for (const h of v.hearts) drawHeart(h.x, h.y + Math.sin(h.t * 4) * 3, 3);
@@ -497,6 +746,8 @@ function frame(v, o) {
     drawPlayer(p, col, me && p.id === me.id);
     ctx.globalAlpha = 1;
   }
+
+  if (v.vents) drawVentsFront(v.vents);
 
   for (const t of pops) {
     ctx.globalAlpha = 1 - t.t; ctx.font = 'bold 16px "Courier New",monospace';

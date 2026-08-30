@@ -267,7 +267,7 @@ function reconcile(d) {
   const sp = d.players.find(p => p.id === Net.id);
   if (!sp) { pred = null; return; }
   /* pinned or busy behind someone: the server owns you until it lets go */
-  predLock = sp.taunt > 0 || sp.held > 0;
+  predLock = sp.taunt > 0 || sp.held > 0 || sp.grab > 0;
   if (!pred || sp.teleport !== predTele || sp.dead || sp.out || predLock) { initPred(sp); predTele = sp.teleport; return; }
   const dx = sp.x - pred.x, dy = sp.y - pred.y, err = Math.hypot(dx, dy);
   if (err > 140) { pred.x = sp.x; pred.y = sp.y; pred.vx = sp.vx; pred.vy = 0; }
@@ -349,7 +349,7 @@ function stepOnline(dt, edges) {
   return {
     view: {
       mode: b.mode, wave: b.wave, kills: b.kills, score: b.score,
-      grid: statics.grid, bg: statics.bg, players,
+      grid: statics.grid, bg: statics.bg, players, vents: b.vents,
       enemies: blend(a.enemies, b.enemies, u),
       bullets: blend(a.bullets, b.bullets, u),
       hearts: blend(a.hearts, b.hearts, u)
