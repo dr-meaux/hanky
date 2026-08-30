@@ -112,7 +112,7 @@ function startMatch(room) {
     if (p.playing) Sim.addPlayer(w, { id: p.id, name: p.name, color: p.color });
   }
   broadcast(room, {
-    t: 'begin', mode: w.mode, bg: w.bg, plats: w.plats,
+    t: 'begin', mode: w.mode, bg: w.bg, ter: Sim.packTerrain(w), rb: w.rb,
     players: w.players.map(p => ({ id: p.id, name: p.name, color: p.color }))
   });
   pushLobby(room);
@@ -146,7 +146,7 @@ function tick(room) {
 
   if (++room.tick % SNAP_EVERY === 0 || w.over) {
     broadcast(room, { t: 's', d: Sim.encode(w) });
-    w.fx.length = 0;
+    w.fx.length = 0; w.dig.length = 0;
   }
   if (w.over) endMatch(room);
   room.touched = now;
@@ -186,7 +186,8 @@ wss.on('connection', ws => {
         p.playing = true;
         Sim.addPlayer(room.world, { id: p.id, name: p.name, color: p.color });
         send(p, {
-          t: 'begin', mode: room.world.mode, bg: room.world.bg, plats: room.world.plats,
+          t: 'begin', mode: room.world.mode, bg: room.world.bg,
+          ter: Sim.packTerrain(room.world), rb: room.world.rb,
           players: room.world.players.map(q => ({ id: q.id, name: q.name, color: q.color }))
         });
         pushRoster(room);
@@ -227,7 +228,8 @@ wss.on('connection', ws => {
           p.playing = true;
           Sim.addPlayer(room.world, { id: p.id, name: p.name, color: p.color });
           send(p, {
-            t: 'begin', mode: room.world.mode, bg: room.world.bg, plats: room.world.plats,
+            t: 'begin', mode: room.world.mode, bg: room.world.bg,
+            ter: Sim.packTerrain(room.world), rb: room.world.rb,
             players: room.world.players.map(q => ({ id: q.id, name: q.name, color: q.color }))
           });
           pushRoster(room);

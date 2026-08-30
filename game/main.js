@@ -20,7 +20,8 @@ let world = null;                          /* solo: the real simulation */
 let acc = 0;
 let menu = S.createWorld('coop');          /* empty arena behind the menus */
 
-let statics = { plats: menu.plats, bg: menu.bg };
+let statics = { grid: menu.grid, bg: menu.bg };
+let terRb = 0;                             /* last arena rebuild we have applied */
 let snaps = [], renderTime = 0, roster = {};
 let pred = null, predWorld = null, predTele = -1, predLock = false;
 let pendEdges = { jump: false, a1: false, a2: false }, sendAcc = 0;
@@ -79,7 +80,7 @@ function stepSolo(dt, edges) {
   let guard = 8;
   while (acc >= S.TICK && guard-- > 0) { S.step(world, S.TICK); acc -= S.TICK; }
   if (guard <= 0) acc = 0;
-  Render.fx(world.fx, p ? p.id : 0); world.fx.length = 0;
+  Render.fx(world.fx, p ? p.id : 0); world.fx.length = 0; world.dig.length = 0;
   if (world.over) { lastResult = world.result; showResult(); }
   return { view: world, me: p };
 }
@@ -111,11 +112,13 @@ Net.on('welcome', m => {
   drawLobby();
 })
 .on('begin', m => {
-  statics = { plats: m.plats, bg: m.bg };
+  /* the arena comes over as run lengths; from here on we only get craters */
+  statics = { grid: S.unpackTerrain(m.ter), bg: m.bg };
+  terRb = m.rb || 0;
   roster = {};
   for (const p of m.players) roster[p.id] = p;
   snaps = []; renderTime = 0; pred = null; predTele = -1; predLock = false;
-  predWorld = { plats: m.plats, WW: S.WW, WH: S.WH, bullets: [], fx: [], players: [], mode: m.mode };
+  predWorld = { grid: statics.grid, WW: S.WW, WH: S.WH, bullets: [], fx: [], players: [], mode: m.mode };
   waitMsg = '';
   const mine = m.players.find(p => p.id === Net.id);
   paintControls(mine ? mine.color : 'red');
@@ -127,6 +130,13 @@ Net.on('welcome', m => {
 .on('wait', m => { waitMsg = m.msg || ''; drawLobby(); })
 .on('s', m => {
   const d = S.decode(m.d);
+  /* Terrain is applied the moment it lands rather than on the interpolation
+     delay: it is what you and the server both collide against. A rebuild
+     resets to the blueprint, then this tick's craters go back on top. */
+  if (statics.grid) {
+    if (d.rb !== terRb) { terRb = d.rb; statics.grid.set(S.baseTerrain()); }
+    for (const g of d.dig) S.digGrid(statics.grid, g[0], g[1], g[2]);
+  }
   d.flushed = false;
   snaps.push(d);
   if (snaps.length > 24) snaps.shift();
@@ -245,7 +255,7 @@ function stepOnline(dt, edges) {
   return {
     view: {
       mode: b.mode, wave: b.wave, kills: b.kills, score: b.score,
-      plats: statics.plats, bg: statics.bg, players,
+      grid: statics.grid, bg: statics.bg, players,
       enemies: blend(a.enemies, b.enemies, u),
       bullets: blend(a.bullets, b.bullets, u),
       hearts: blend(a.hearts, b.hearts, u)
@@ -255,7 +265,7 @@ function stepOnline(dt, edges) {
 }
 
 function emptyView() {
-  return { mode: lobby.mode, wave: 0, kills: 0, score: 0, plats: statics.plats, bg: statics.bg, players: [], enemies: [], bullets: [], hearts: [] };
+  return { mode: lobby.mode, wave: 0, kills: 0, score: 0, grid: statics.grid, bg: statics.bg, players: [], enemies: [], bullets: [], hearts: [] };
 }
 
 /* ---------------- lobby UI ---------------- */
@@ -354,7 +364,7 @@ function loop(now) {
   if (phase === 'play') frame = online ? stepOnline(dt, edges) : stepSolo(dt, edges);
 
   if (frame && frame.view) Render.frame(frame.view, { dt, me: frame.me, sim: S });
-  else Render.frame({ mode: 'coop', wave: 0, kills: 0, score: 0, plats: menu.plats, bg: menu.bg, players: [], enemies: [], bullets: [], hearts: [] },
+  else Render.frame({ mode: 'coop', wave: 0, kills: 0, score: 0, grid: menu.grid, bg: menu.bg, players: [], enemies: [], bullets: [], hearts: [] },
     { dt, me: null, sim: S, hud: false });
 
   if (phase === 'play' && online) {

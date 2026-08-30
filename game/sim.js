@@ -14,6 +14,16 @@ const WW = 2200, WH = 1300;                 /* fixed arena, same for everyone */
 const G = 2600, SPD = 330, JUMP = 830;
 const TICK = 1 / 60;
 
+/* The ground is a grid of small blocks rather than a set of rectangles, so
+   anything can be chewed out of it. CELL is the smallest bite. */
+const CELL = 10;
+const COLS = Math.ceil(WW / CELL), ROWS = Math.ceil(WH / CELL);
+const GROUND_H = 96, PLAT_H = 28;
+const BEDROCK = 3;                          /* bottom rows nothing can break */
+
+/* how much each thing takes out */
+const DIG_BULLET = 9, DIG_SLAM = 40, DIG_DEATH = 58, DIG_BRUTE = 30, DIG_ROOM = 34;
+
 /* the four player colors */
 const COLORS = [
   { id: 'red',    label: 'RED',    body: '#e8172a', hurt: '#ff8f9a', dark: '#a30f1d' },
@@ -50,11 +60,112 @@ const COMBO_WINDOW = 4, TAUNT_TIME = 1.5;
 /* ---------------- world ---------------- */
 
 function buildPlats() {
-  const gh = 64, t = 18;
-  const plats = [{ x: 0, y: WH - gh, w: WW, h: gh }];
+  const plats = [{ x: 0, y: WH - GROUND_H, w: WW, h: GROUND_H }];
   for (const [fx, fy, fw] of LAYOUT)
-    plats.push({ x: Math.round(fx * WW), y: Math.round(fy * WH), w: Math.round(Math.max(70, fw * WW)), h: t });
+    plats.push({ x: Math.round(fx * WW), y: Math.round(fy * WH), w: Math.round(Math.max(70, fw * WW)), h: PLAT_H });
   return plats;
+}
+
+/* ---------------- terrain ---------------- */
+/* One byte per cell, 1 = solid. The layout above is only the blueprint: once
+   a round starts, the grid is the truth, and it only ever loses cells. */
+
+function makeGrid() { return new Uint8Array(COLS * ROWS); }
+
+function fillRect(g, x, y, w, h) {
+  const c0 = Math.max(0, Math.floor(x / CELL)), c1 = Math.min(COLS - 1, Math.ceil((x + w) / CELL) - 1);
+  const r0 = Math.max(0, Math.floor(y / CELL)), r1 = Math.min(ROWS - 1, Math.ceil((y + h) / CELL) - 1);
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) g[r * COLS + c] = 1;
+}
+
+/* the same blueprint on both ends, so a rebuild needs no data on the wire */
+function baseTerrain(plats) {
+  const g = makeGrid();
+  for (const p of (plats || buildPlats())) fillRect(g, p.x, p.y, p.w, p.h);
+  return g;
+}
+
+function bedrockRow(r) { return r >= ROWS - BEDROCK; }
+function cellSolid(g, c, r) { return c >= 0 && c < COLS && r >= 0 && r < ROWS && g[r * COLS + c] === 1; }
+function solidAt(g, x, y) { return cellSolid(g, Math.floor(x / CELL), Math.floor(y / CELL)); }
+
+/* take a circle out of the grid; returns how many cells actually went */
+function digGrid(g, x, y, r) {
+  const c0 = Math.max(0, Math.floor((x - r) / CELL)), c1 = Math.min(COLS - 1, Math.floor((x + r) / CELL));
+  const r0 = Math.max(0, Math.floor((y - r) / CELL)), r1 = Math.min(ROWS - 1, Math.floor((y + r) / CELL));
+  const rr = r * r;
+  let n = 0;
+  for (let ry = r0; ry <= r1; ry++) {
+    if (bedrockRow(ry)) continue;
+    const dy = (ry + 0.5) * CELL - y;
+    for (let cx = c0; cx <= c1; cx++) {
+      const i = ry * COLS + cx;
+      if (!g[i]) continue;
+      const dx = (cx + 0.5) * CELL - x;
+      if (dx * dx + dy * dy <= rr) { g[i] = 0; n++; }
+    }
+  }
+  return n;
+}
+
+/* The simulation's way in: records the crater for the wire and throws debris.
+   Rounded before it digs, not after — the wire carries whole numbers, so
+   digging with anything else would leave every client a cell out of step. */
+function carve(w, x, y, r) {
+  x = Math.round(x); y = Math.round(y); r = Math.round(r);
+  const n = digGrid(w.grid, x, y, r);
+  if (!n) return 0;
+  w.dig.push([x, y, r]);
+  burst(w, x, y, '#6b6b70', Math.min(16, 3 + Math.round(n / 3)));
+  return n;
+}
+
+/* first solid point along a segment, for anything moving faster than a cell */
+function rayHit(g, x0, y0, x1, y1) {
+  const dx = x1 - x0, dy = y1 - y0;
+  const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) / (CELL * 0.6)));
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps, x = x0 + dx * t, y = y0 + dy * t;
+    if (solidAt(g, x, y)) return { x, y };
+  }
+  return null;
+}
+
+/* Between co-op waves the arena knits itself back together — otherwise an
+   endless run ends with nothing left to stand on. Versus keeps its scars. */
+function rebuildTerrain(w) {
+  w.grid.set(baseTerrain(w.plats));
+  w.rb++;
+  w.dig.length = 0;                          /* craters before this are moot */
+  for (const p of w.players) {
+    if (p.dead || p.out) continue;
+    carve(w, p.x + p.w / 2, p.y + p.h / 2, DIG_ROOM);   /* nobody gets walled in */
+    popText(w, p.x + p.w / 2, p.y - 40, 'REBUILT', '#141416', p.id);
+  }
+  shake(w, 9);
+}
+
+/* RLE over the cells: a fresh arena is mostly empty, so this stays small */
+function packTerrain(w) {
+  const g = w.grid, runs = [];
+  let cur = 0, n = 0;
+  for (let i = 0; i < g.length; i++) {
+    const v = g[i] ? 1 : 0;
+    if (v === cur) n++;
+    else { runs.push(n); cur = v; n = 1; }
+  }
+  runs.push(n);
+  return runs;
+}
+
+function unpackTerrain(runs) {
+  const g = makeGrid();
+  let i = 0, v = 0;
+  for (const n of (runs || [])) {
+    if (v && n) g.fill(1, i, Math.min(g.length, i + n));
+    i += n; v ^= 1;
+  }
+  return g;
 }
 
 function buildBg() {
@@ -68,10 +179,14 @@ function buildBg() {
 }
 
 function createWorld(mode, seed) {
+  const plats = buildPlats();
   return {
     mode: mode === 'vs' ? 'vs' : 'coop',
     WW, WH,
-    plats: buildPlats(),
+    /* `plats` is the blueprint, not the collision: it says where to spawn
+       things and where to rebuild from. Everything collides against `grid`. */
+    plats,
+    grid: baseTerrain(plats), dig: [], rb: 0,
     bg: (seed && seed.bg) || buildBg(),
     players: [], enemies: [], bullets: [], hearts: [],
     fx: [], nextId: 1,
@@ -123,25 +238,63 @@ function spawnPoint(w, p) {
 
 function overlap(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
 
+/* any solid cell in column `c` between rows r0..r1, and the row equivalent */
+function colSolid(g, c, r0, r1) {
+  if (c < 0 || c >= COLS) return false;
+  for (let r = r0; r <= r1; r++) if (g[r * COLS + c]) return true;
+  return false;
+}
+function rowSolid(g, r, c0, c1) {
+  if (r < 0 || r >= ROWS) return false;
+  const o = r * COLS;
+  for (let c = c0; c <= c1; c++) if (g[o + c]) return true;
+  return false;
+}
+const lo = (v, max) => Math.max(0, Math.min(max, Math.floor(v / CELL)));
+
 function moveBody(w, b, dt) {
+  const g = w.grid;
   b.hitWall = false;
+
   b.x += b.vx * dt;
-  for (const p of w.plats) if (overlap(b, p)) {
-    if (b.vx > 0) b.x = p.x - b.w; else if (b.vx < 0) b.x = p.x + p.w;
-    b.hitWall = true;
+  {
+    const r0 = lo(b.y, ROWS - 1), r1 = lo(b.y + b.h - 0.001, ROWS - 1);
+    const c0 = lo(b.x, COLS - 1), c1 = lo(b.x + b.w - 0.001, COLS - 1);
+    if (b.vx > 0) {
+      for (let c = c0; c <= c1; c++) if (colSolid(g, c, r0, r1)) { b.x = c * CELL - b.w; b.hitWall = true; break; }
+    } else if (b.vx < 0) {
+      for (let c = c1; c >= c0; c--) if (colSolid(g, c, r0, r1)) { b.x = (c + 1) * CELL; b.hitWall = true; break; }
+    }
   }
+
   b.vy += G * dt; b.y += b.vy * dt; b.onGround = false;
-  for (const p of w.plats) if (overlap(b, p)) {
-    if (b.vy > 0) { b.y = p.y - b.h; b.vy = 0; b.onGround = true; }
-    else if (b.vy < 0) { b.y = p.y + p.h; b.vy = 0; }
+  {
+    const c0 = lo(b.x, COLS - 1), c1 = lo(b.x + b.w - 0.001, COLS - 1);
+    const r0 = lo(b.y, ROWS - 1), r1 = lo(b.y + b.h - 0.001, ROWS - 1);
+    if (b.vy > 0) {
+      for (let r = r0; r <= r1; r++) if (rowSolid(g, r, c0, c1)) { b.y = r * CELL - b.h; b.vy = 0; b.onGround = true; break; }
+    } else if (b.vy < 0) {
+      for (let r = r1; r >= r0; r--) if (rowSolid(g, r, c0, c1)) { b.y = (r + 1) * CELL; b.vy = 0; break; }
+    }
   }
+
   if (b.x < 0) { b.x = 0; b.hitWall = true; }
   if (b.x + b.w > WW) { b.x = WW - b.w; b.hitWall = true; }
 }
 
 function groundAhead(w, e) {
-  const px = e.vx > 0 ? e.x + e.w + 6 : e.x - 6, py = e.y + e.h + 8;
-  return w.plats.some(p => px > p.x && px < p.x + p.w && py > p.y && py < p.y + p.h + 12);
+  const px = e.vx > 0 ? e.x + e.w + 6 : e.x - 6;
+  for (let d = 4; d <= 26; d += CELL) if (solidAt(w.grid, px, e.y + e.h + d)) return true;
+  return false;
+}
+
+/* How far the thing in front rises above our feet. Ground enemies use it to
+   tell a step they can scramble over from a wall they cannot — without it a
+   crater is a prison, and a co-op wave that never clears never ends. */
+function ledgeAhead(w, e) {
+  const px = e.vx > 0 ? e.x + e.w + 6 : e.x - 6, feet = e.y + e.h;
+  for (let d = 1; d <= 80; d += CELL) if (!solidAt(w.grid, px, feet - d)) return d;
+  return 999;
 }
 
 function burst(w, x, y, c, n, who) { w.fx.push({ k: 'b', x: Math.round(x), y: Math.round(y), c, n: n || 6, p: who }); }
@@ -156,7 +309,8 @@ function makeEnemy(w, kind, x, y) {
     id: w.nextId++, kind, x, y, w: T.w, h: T.h,
     vx: (Math.random() < 0.5 ? -1 : 1) * T.spd, vy: 0,
     hp: T.hp, maxHp: T.hp, onGround: false,
-    walk: Math.random() * 6, flash: 0, tilt: 0, hopT: Math.random(), bob: Math.random() * 6, stun: 0
+    walk: Math.random() * 6, flash: 0, tilt: 0, hopT: Math.random(), bob: Math.random() * 6, stun: 0,
+    climb: 0, pen: 0, anchor: x
   };
 }
 
@@ -234,6 +388,8 @@ function killEnemy(w, e, by) {
   w.score += gain;
   if (by) { by.score += gain; by.kills++; by.cheer = 0.75; popText(w, e.x + e.w / 2, e.y, '+' + gain, '#141416', by.id); }
   burst(w, e.x + e.w / 2, e.y + e.h / 2, '#57575a', 10);
+  /* the heavy ones go off loudly enough to take the floor with them */
+  if (e.kind === 'brute') { carve(w, e.x + e.w / 2, e.y + e.h / 2, DIG_BRUTE); shake(w, 8); }
   if (Math.random() < 0.28) dropHeart(w, e.x + e.w / 2, e.y, -150);
 }
 
@@ -326,6 +482,7 @@ function killPlayer(w, p, by) {
   if (p.held > 0) releaseHold(p);
   for (const o of w.players) if (o.tauntOn === p.id && o.taunt > 0) endTaunt(w, o);
   burst(w, p.x + p.w / 2, p.y + p.h / 2, colorOf(p.color).body, 16);
+  carve(w, p.x + p.w / 2, p.y + p.h / 2, DIG_DEATH);   /* blocks go out with a bang */
   shake(w, 14, p.id);
   if (w.mode === 'vs') {
     p.lives--;
@@ -444,6 +601,10 @@ function step(w, dt) {
           if (landed) registerSlam(w, p, o);
           if (p.taunt > 0) break;                /* the show has started; stop swinging */
         }
+        /* the swing lands on the scenery too — low and forward, so a slam
+           takes a bite out of the ledge you are standing on. This is the
+           digging tool: two of them punch clean through a platform. */
+        if (carve(w, p.x + p.w / 2 + p.face * 46, p.y + p.h * 0.86, DIG_SLAM) > 0) hit = true;
         if (hit) { p.hitDone = true; shake(w, 12, p.id); w.fx.push({ k: 'h', p: p.id }); }
       }
       if (p.meleeT > 0.42) { p.melee = false; p.hitDone = false; }
@@ -454,10 +615,17 @@ function step(w, dt) {
 
   /* bullets */
   for (const b of w.bullets) {
+    const px = b.x, py = b.y;
     b.t += dt; b.x += b.vx * dt; b.y += b.vy * dt;
     if (b.x < 0 || b.x > WW || b.y < 0 || b.y > WH) b.dead = true;
-    for (const pl of w.plats) if (b.x > pl.x && b.x < pl.x + pl.w && b.y > pl.y && b.y < pl.y + pl.h) {
-      b.dead = true; burst(w, b.x, b.y, '#8a8a90', 3);
+    if (!b.dead) {
+      /* stepped along the path: a bullet outruns a cell in a single tick */
+      const s = rayHit(w.grid, px, py, b.x, b.y);
+      if (s) {
+        b.dead = true; b.x = s.x; b.y = s.y;
+        burst(w, s.x, s.y, '#8a8a90', 3);
+        carve(w, s.x, s.y, DIG_BULLET);          /* enough shots and it gives */
+      }
     }
     if (!b.dead) for (const e of w.enemies) {
       if (e.dead) continue;
@@ -512,10 +680,15 @@ function step(w, dt) {
         if (e.hopT <= 0) { e.vy = -560; e.hopT = 0.9 + Math.random() * 0.7; }
       }
       moveBody(w, e, dt);
+      /* pacing the same few metres means walled in, not patrolling */
+      if (e.climb > 0) e.climb -= dt;
+      if (Math.abs(e.x - e.anchor) > 110) { e.anchor = e.x; e.pen = 0; } else e.pen += dt;
       if (e.onGround && e.stun <= 0 && (e.hitWall || !groundAhead(w, e))) {
         /* walk off the edge when someone is down there; otherwise turn around */
         const dive = !e.hitWall && target && target.y > e.y + 90;
-        if (!dive) e.vx *= -1;
+        if (e.hitWall && e.pen > 2.5 && e.climb <= 0 && ledgeAhead(w, e) <= 84) {
+          e.vy = -700; e.climb = 0.8;            /* scramble out of the crater */
+        } else if (!dive) e.vx *= -1;
       }
       e.tilt += ((e.vx / 420) * 0.22 - e.tilt) * Math.min(1, dt * 10);
     }
@@ -529,10 +702,10 @@ function step(w, dt) {
 
   /* hearts */
   for (const h of w.hearts) {
-    h.t += dt; h.vy += G * 0.55 * dt; h.y += h.vy * dt;
-    for (const pl of w.plats) if (h.x > pl.x && h.x < pl.x + pl.w && h.y + 7 > pl.y && h.y + 7 < pl.y + pl.h + 14 && h.vy > 0) {
-      h.y = pl.y - 7; h.vy = 0;
-    }
+    h.t += dt; h.vy += G * 0.55 * dt;
+    const ny = h.y + h.vy * dt;
+    if (h.vy > 0 && solidAt(w.grid, h.x, ny + 7)) { h.y = Math.floor((ny + 7) / CELL) * CELL - 7; h.vy = 0; }
+    else h.y = Math.min(ny, WH - 7);
     for (const p of w.players) {
       if (p.dead || p.out || h.dead) continue;
       if (Math.abs(h.x - (p.x + p.w / 2)) < 26 && Math.abs(h.y - (p.y + p.h / 2)) < 32) {
@@ -555,6 +728,7 @@ function step(w, dt) {
             if (p.out) continue;
             if (p.dead) revive(w, p); else p.hp = Math.min(p.maxHp, p.hp + 15);
           }
+          rebuildTerrain(w);
         }
         spawnWave(w); w.spawnT = 1.5;
       }
@@ -595,6 +769,7 @@ function encode(w) {
     t: w.time,
     m: w.mode, o: w.over ? 1 : 0,
     wv: w.wave, ks: w.kills, sc: w.score,
+    rb: w.rb, dg: w.dig,
     p: w.players.map(p => [
       p.id, Math.round(p.x), Math.round(p.y), Math.round(p.vx), p.face,
       Math.round(p.hp), r1(p.tilt), r1(p.walk), r1(p.shootT), r1(p.meleeT),
@@ -617,6 +792,7 @@ function encode(w) {
 function decode(s) {
   return {
     time: s.t, mode: s.m, over: !!s.o, wave: s.wv, kills: s.ks, score: s.sc,
+    rb: s.rb || 0, dig: s.dg || [],
     players: s.p.map(a => ({
       id: a[0], x: a[1], y: a[2], vx: a[3], face: a[4], hp: a[5], maxHp: 100,
       tilt: a[6], walk: a[7], shootT: a[8], meleeT: a[9], dance: a[10], cheer: a[11],
@@ -639,7 +815,9 @@ function decode(s) {
 
 return {
   WW, WH, G, SPD, JUMP, TICK, COLORS, TYPES, KINDS, VS_LIVES,
+  CELL, COLS, ROWS, BEDROCK,
   colorOf, createWorld, addPlayer, removePlayer, getPlayer, spawnPoint, revive,
-  step, movePlayer, edgesOf, moveBody, overlap, scoreboard, encode, decode, buildBg
+  step, movePlayer, edgesOf, moveBody, overlap, scoreboard, encode, decode, buildBg,
+  baseTerrain, packTerrain, unpackTerrain, digGrid, solidAt, cellSolid
 };
 });

@@ -1,5 +1,5 @@
 /* HANKY service worker — bump VERSION to ship a new build. */
-const VERSION = 'v5';
+const VERSION = 'v6';
 const CACHE = 'hanky-' + VERSION;
 const ASSETS = [
   './',

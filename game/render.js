@@ -51,6 +51,55 @@ function slab(x, y, w, h, face, side, d) {
   ctx.fillStyle = face; ctx.fillRect(x, y, w, h);
   ctx.fillStyle = 'rgba(255,255,255,.10)'; ctx.fillRect(x, y, w, 3);
 }
+
+/* ---------------- terrain ---------------- */
+/* The ground is a grid of cells that get shot away, but drawing one rect per
+   cell would be thousands of fills a frame. Merge each row into runs first —
+   an untouched platform is a single rect, a chewed one a handful. */
+
+const runs = { x: [], y: [], w: [], rock: [], n: 0 };
+const caps = { x: [], y: [], w: [], n: 0 };
+
+function scanTerrain(grid, S, camx, camy) {
+  const CELL = S.CELL, COLS = S.COLS, ROWS = S.ROWS, deep = S.ROWS - S.BEDROCK;
+  const c0 = Math.max(0, Math.floor(camx / CELL) - 1), c1 = Math.min(COLS - 1, Math.floor((camx + W) / CELL) + 1);
+  const r0 = Math.max(0, Math.floor(camy / CELL) - 1), r1 = Math.min(ROWS - 1, Math.floor((camy + H) / CELL) + 1);
+  runs.n = 0; caps.n = 0;
+  for (let r = r0; r <= r1; r++) {
+    const row = r * COLS, above = row - COLS;
+    let s = -1, cs = -1;
+    for (let c = c0; c <= c1 + 1; c++) {
+      const solid = c <= c1 && grid[row + c] === 1;
+      if (solid && s < 0) s = c;
+      else if (!solid && s >= 0) {
+        const i = runs.n++;
+        runs.x[i] = s * CELL; runs.y[i] = r * CELL; runs.w[i] = (c - s) * CELL; runs.rock[i] = r >= deep;
+        s = -1;
+      }
+      /* the lit top edge: solid cell with open sky directly above it */
+      const cap = solid && !(r > 0 && grid[above + c] === 1);
+      if (cap && cs < 0) cs = c;
+      else if (!cap && cs >= 0) {
+        const i = caps.n++;
+        caps.x[i] = cs * CELL; caps.y[i] = r * CELL; caps.w[i] = (c - cs) * CELL;
+        cs = -1;
+      }
+    }
+  }
+}
+
+function drawTerrain(grid, S) {
+  const CELL = S.CELL, d = 7;
+  ctx.fillStyle = '#2c2c2e';
+  for (let i = 0; i < runs.n; i++) ctx.fillRect(runs.x[i], runs.y[i], runs.w[i] + d, CELL + d);
+  for (let i = 0; i < runs.n; i++) {
+    ctx.fillStyle = runs.rock[i] ? '#43434a' : '#57575a';   /* bedrock reads denser */
+    ctx.fillRect(runs.x[i], runs.y[i], runs.w[i], CELL);
+  }
+  ctx.fillStyle = 'rgba(255,255,255,.10)';
+  for (let i = 0; i < caps.n; i++) ctx.fillRect(caps.x[i], caps.y[i], caps.w[i], 3);
+}
+
 function bar(x, y, w, h, frac, col) {
   const seg = 3, gap = 1.5, n = Math.floor(w / (seg + gap));
   const on = Math.round(n * Math.max(0, Math.min(1, frac)));
@@ -225,7 +274,7 @@ function frame(v, o) {
     ctx.fillStyle = g; ctx.fillRect(cam.x, cam.y, W, H);
   }
 
-  for (const p of v.plats) slab(p.x, p.y, p.w, p.h, '#57575a', '#2c2c2e', 7);
+  if (v.grid) { scanTerrain(v.grid, S, cam.x, cam.y); drawTerrain(v.grid, S); }
   for (const h of v.hearts) drawHeart(h.x, h.y + Math.sin(h.t * 4) * 3, 3);
 
   for (const q of parts) {
