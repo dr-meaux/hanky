@@ -1,0 +1,21 @@
+{
+  "name": "BLOCK BRAWL",
+  "short_name": "BLOCK BRAWL",
+  "description": "Shoot, slam and dance your way through waves of blocks. A tiny arena brawler that installs and plays offline.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#cfcfd1",
+  "theme_color": "#cfcfd1",
+  "categories": ["games"],
+  "icons": [
+    { "src": "icons/favicon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" },
+    { "src": "icons/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any" },
+    { "src": "icons/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any" },
+    { "src": "icons/icon-maskable-192.png", "type": "image/png", "sizes": "192x192", "purpose": "maskable" },
+    { "src": "icons/icon-maskable-512.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+  ]
+}
