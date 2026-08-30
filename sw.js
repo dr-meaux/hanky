@@ -1,5 +1,5 @@
 /* HANKY service worker — bump VERSION to ship a new build. */
-const VERSION = 'v5';
+const VERSION = 'v6';
 const CACHE = 'hanky-' + VERSION;
 const ASSETS = [
   './',
@@ -8,6 +8,7 @@ const ASSETS = [
   './game/style.css',
   './game/sim.js',
   './game/render.js',
+  './game/story.js',
   './game/input.js',
   './game/net.js',
   './game/main.js',

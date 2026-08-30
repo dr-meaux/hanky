@@ -23,13 +23,18 @@ const COLORS = [
 ];
 const colorOf = id => COLORS.find(c => c.id === id) || COLORS[0];
 
-/* enemies stay grey-and-bone so colored blocks always read as players */
-const KINDS = ['walker', 'brute', 'hopper', 'flyer'];
+/* enemies stay grey-and-bone so colored blocks always read as players.
+   The `lying` kinds are tanks: they cannot stand up, so they are drawn long
+   and low, on treads, with the visor bar along the hull. */
+const KINDS = ['walker', 'brute', 'hopper', 'flyer', 'tank', 'heavy', 'stanky'];
 const TYPES = {
   walker: { w: 24, h: 40, hp: 45,  spd: 135, dmg: 8,  visor: '#e4e4e8', body: '#3a3a3d', pts: 120 },
   brute:  { w: 36, h: 56, hp: 115, spd: 78,  dmg: 15, visor: '#e4e4e8', body: '#232326', pts: 260 },
   hopper: { w: 22, h: 34, hp: 35,  spd: 190, dmg: 7,  visor: '#e4e4e8', body: '#4d4d54', pts: 150 },
-  flyer:  { w: 26, h: 26, hp: 30,  spd: 95,  dmg: 10, visor: '#e4e4e8', body: '#5c5c66', pts: 200 }
+  flyer:  { w: 26, h: 26, hp: 30,  spd: 95,  dmg: 10, visor: '#e4e4e8', body: '#5c5c66', pts: 200 },
+  tank:   { w: 48, h: 26, hp: 60,  spd: 120, dmg: 9,  visor: '#141416', body: '#7a7a82', pts: 100, lying: true },
+  heavy:  { w: 64, h: 32, hp: 130, spd: 85,  dmg: 15, visor: '#141416', body: '#55555c', pts: 220, lying: true },
+  stanky: { w: 88, h: 40, hp: 320, spd: 380, dmg: 14, visor: '#141416', body: '#e8172a', pts: 0,   lying: true }
 };
 
 const LAYOUT = [
@@ -69,9 +74,9 @@ function buildBg() {
 
 function createWorld(mode, seed) {
   return {
-    mode: mode === 'vs' ? 'vs' : 'coop',
+    mode: mode === 'vs' ? 'vs' : mode === 'story' ? 'story' : 'coop',
     WW, WH,
-    plats: buildPlats(),
+    plats: (seed && seed.plats) || buildPlats(),
     bg: (seed && seed.bg) || buildBg(),
     players: [], enemies: [], bullets: [], hearts: [],
     fx: [], nextId: 1,
@@ -150,14 +155,28 @@ function shake(w, v, who) { w.fx.push({ k: 's', v, p: who }); }
 
 /* ---------------- enemies ---------------- */
 
-function makeEnemy(w, kind, x, y) {
+function makeEnemy(w, kind, x, y, opt) {
   const T = TYPES[kind];
+  opt = opt || {};
+  const hp = opt.hp || T.hp;
   return {
     id: w.nextId++, kind, x, y, w: T.w, h: T.h,
-    vx: (Math.random() < 0.5 ? -1 : 1) * T.spd, vy: 0,
-    hp: T.hp, maxHp: T.hp, onGround: false,
-    walk: Math.random() * 6, flash: 0, tilt: 0, hopT: Math.random(), bob: Math.random() * 6, stun: 0
+    vx: (opt.face || (Math.random() < 0.5 ? -1 : 1)) * T.spd, vy: 0,
+    hp, maxHp: hp, onGround: false,
+    walk: Math.random() * 6, flash: 0, tilt: 0, hopT: Math.random(), bob: Math.random() * 6, stun: 0,
+    /* story tanks are never destroyed: beaten down they lie there dazed,
+       waiting for someone to stand them up. `ext` hands the brain to the
+       story script instead of the patrol AI. */
+    raise: !!opt.raise, dazed: 0, ext: !!opt.ext
   };
+}
+
+/* knocked down rather than knocked out */
+function dazeEnemy(w, e, by) {
+  e.dazed = 1; e.hp = Math.max(1, Math.round(e.maxHp * 0.12));
+  e.vx = 0; e.stun = 0.6; e.flash = 0.2;
+  burst(w, e.x + e.w / 2, e.y + e.h / 2, '#8a8a90', 10);
+  if (by) shake(w, 8, by.id);
 }
 
 /* Ground enemies can only walk their own platform, so drop them near someone
@@ -229,6 +248,8 @@ function shoot(w, p) {
 }
 
 function killEnemy(w, e, by) {
+  if (e.raise && !e.dazed) { dazeEnemy(w, e, by); return; }   /* tanks go down, not out */
+  if (e.raise) { e.hp = Math.max(1, e.hp); return; }
   e.dead = true; w.kills++;
   const gain = TYPES[e.kind].pts;
   w.score += gain;
@@ -501,25 +522,26 @@ function step(w, dt) {
       e.x = Math.max(0, Math.min(WW - e.w, e.x)); e.y = Math.max(0, Math.min(WH - e.h, e.y));
       e.tilt = e.vx / 700;
     } else {
-      if (e.onGround && e.stun <= 0) {
+      if (e.onGround && e.stun <= 0 && !e.ext && !e.dazed) {
         /* drift toward the nearest player instead of patrolling blindly */
         let dir = Math.sign(e.vx || 1);
         if (target && Math.random() < 0.02) dir = Math.sign((target.x - e.x) || 1);
         e.vx = dir * T.spd;
       }
+      if (e.dazed && e.onGround) e.vx *= Math.pow(0.001, dt);   /* down and going nowhere */
       if (e.kind === 'hopper' && e.onGround && e.stun <= 0) {
         e.hopT -= dt;
         if (e.hopT <= 0) { e.vy = -560; e.hopT = 0.9 + Math.random() * 0.7; }
       }
       moveBody(w, e, dt);
-      if (e.onGround && e.stun <= 0 && (e.hitWall || !groundAhead(w, e))) {
+      if (e.onGround && e.stun <= 0 && !e.ext && !e.dazed && (e.hitWall || !groundAhead(w, e))) {
         /* walk off the edge when someone is down there; otherwise turn around */
         const dive = !e.hitWall && target && target.y > e.y + 90;
         if (!dive) e.vx *= -1;
       }
       e.tilt += ((e.vx / 420) * 0.22 - e.tilt) * Math.min(1, dt * 10);
     }
-    if (!e.dead) for (const p of w.players) {
+    if (!e.dead && !e.dazed) for (const p of w.players) {
       if (p.dead || p.out || p.iframe > 0) continue;
       if (overlap(e, p)) hurtPlayer(w, p, T.dmg, (p.x < e.x ? -1 : 1) * 360, -280, null);
     }
@@ -564,7 +586,7 @@ function step(w, dt) {
       w.over = true;
       w.result = { mode: 'coop', wave: w.wave, kills: w.kills, score: w.score, players: scoreboard(w) };
     }
-  } else {
+  } else if (w.mode === 'vs') {
     w.heartT -= dt;
     if (w.heartT <= 0) { if (w.hearts.length < 3) dropHeart(w); w.heartT = 7; }
     const standing = w.players.filter(p => !p.out);
@@ -640,6 +662,7 @@ function decode(s) {
 return {
   WW, WH, G, SPD, JUMP, TICK, COLORS, TYPES, KINDS, VS_LIVES,
   colorOf, createWorld, addPlayer, removePlayer, getPlayer, spawnPoint, revive,
-  step, movePlayer, edgesOf, moveBody, overlap, scoreboard, encode, decode, buildBg
+  step, movePlayer, edgesOf, moveBody, overlap, scoreboard, encode, decode, buildBg,
+  makeEnemy, dazeEnemy, burst, popText, shake, dropHeart
 };
 });

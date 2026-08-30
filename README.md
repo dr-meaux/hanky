@@ -1,8 +1,39 @@
 # HANKY
 
-A tiny arena brawler that runs in the browser — no build step, no bundler,
-plain scripts. Shoot straight ahead, turn to face your target, slam anything
-that gets close, grab hearts, and hold both attack buttons to dance.
+A tiny brawler that runs in the browser — no build step, no bundler, plain
+scripts. Shoot straight ahead, turn to face your target, slam anything that
+gets close, grab hearts, and hold both attack buttons to dance.
+
+## The story
+
+Hanky is the first tank that ever learned to stand up: *Tankus Erectus*.
+The other tanks cannot, and being different got him mocked, cornered and
+frozen out of the scrapyard — most of it stirred up by Stanky, an ordinary
+tank who could not stand and hated that Hanky could. Alone, Hanky ended it.
+
+That is not where it stops. He is sent back with a job: get to Stanky before
+Stanky turns every tank in the yard against every other one. Not by beating
+them — by standing them up. Even Stanky, who keeps trying to put him back in
+the ground.
+
+**STORY** on the front screen plays it: eight levels across four places, with
+tanks to talk to, speech bubbles, and one move the arena does not have —
+walking up to a tank you have knocked flat and standing it back on its treads.
+Progress is remembered in the browser, so chapters unlock as you go.
+
+| | |
+| --- | --- |
+| THE SCRAPYARD | where he was built, and where they turned on him |
+| THE WHITE ABOVE | what came after, and the job he was sent back with |
+| THE RUST FLATS | the tank camps, and the first ones he stands up |
+| STANKY'S FOUNDRY | the gate, the guard, and Stanky himself |
+
+Nothing in the story mode dies. Tanks that are beaten down lie there dazed,
+waiting for someone to pick them up — that is the entire point of the game,
+and the simulation enforces it. Hanky cannot be lost either: knocked out, he
+is set back on his treads at the start of the level.
+
+## The arena
 
 Up to four blocks — red, orange, green and blue — share one arena over a
 websocket connection, in either of two modes:
@@ -63,13 +94,15 @@ open is dropped. Everything else is the same as a paid instance.
 | Shoot | `SHOOT` | `J` |
 | Slam | `SLAM` | `K` |
 | Dance | hold `SHOOT` + `SLAM` | `J` + `K` |
-| Back to the lobby | `LOBBY` | `Esc` |
+| Talk / stand a tank up | `TALK` (story only, when there is something to talk to) | `E` or `Enter` |
+| Next line of dialogue | tap anywhere | `Space`, `E` or `Enter` |
+| Back out | `CHAPTERS` / `LOBBY` | `Esc` |
 
 ## Installing it
 
 The game is a PWA: open it and use your browser's "Install" / "Add to Home
-Screen". It runs full screen, and solo runs work offline after the first
-visit. The icon is the player character — the block with the visor and the
+Screen". It runs full screen, and the story and solo runs work offline after
+the first visit. The icon is the player character — the block with the visor and the
 turret arm.
 
 ## The server
@@ -92,8 +125,9 @@ demand by lobby code, capped at four players each, and disappear when empty.
 ## Layout
 
 ```
-index.html             page shell: canvas, touch controls, lobby screens
+index.html             page shell: canvas, touch controls, menu screens
 game/sim.js            the simulation — runs in the browser and in Node
+game/story.js          the campaign: areas, levels, dialogue, objectives
 game/render.js         canvas drawing
 game/input.js          stick, buttons, keyboard
 game/net.js            websocket client
@@ -110,6 +144,13 @@ icons/                 favicon + app icons, drawn from the character
 `game/sim.js` is the single source of truth for how the game behaves; the
 server requires it, the page loads it with a `<script>` tag. Change a rule
 once and both ends agree.
+
+`game/story.js` sits on top of it and never touches the wire: the campaign is
+single player and local, so it builds its own worlds in `story` mode, drives
+them with the same `step()`, and adds dialogue, npcs and objectives around it.
+A level is a small block of data — platforms as fractions of the arena, who
+stands where, what everyone says, and what counts as done — so writing a new
+one is editing a table, not writing code.
 
 ## Working on it
 

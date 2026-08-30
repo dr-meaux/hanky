@@ -33,6 +33,7 @@
   <div class="btn" id="bJump">JUMP</div>
   <div class="btn" id="bA1">SHOOT</div>
   <div class="btn" id="bA2">SLAM</div>
+  <div class="btn" id="bUse" hidden>TALK</div>
 </div>
 <button id="quit" class="pill" hidden>LOBBY</button>
 <div id="netInfo" hidden></div>
@@ -43,16 +44,41 @@
     <!-- who are you -->
     <section id="scrName">
       <h1>HANKY</h1>
-      <p class="sub">Four blocks, one arena. Take the waves together, or knock each other off it.</p>
+      <p class="sub">Hanky is the first tank that ever stood up. Play his story, or take the arena on your own or with three others.</p>
       <label class="fld"><span>YOUR NAME</span><input id="fName" maxlength="12" autocomplete="off" placeholder="BLOCK"></label>
       <label class="fld"><span>LOBBY CODE</span><input id="fRoom" maxlength="6" autocomplete="off" placeholder="MAIN"></label>
       <label class="fld"><span>SERVER</span><input id="fServer" autocomplete="off" placeholder="ws://localhost:8080"></label>
       <div class="row">
-        <button id="bJoin" class="go">JOIN LOBBY</button>
-        <button id="bSolo" class="ghost">PLAY SOLO</button>
+        <button id="bStory" class="go">STORY</button>
+        <button id="bSolo" class="ghost">ARENA</button>
       </div>
-      <p class="note" id="nameNote">Solo runs work offline. Multiplayer needs a HANKY server — open the game from the server itself and the address fills in on its own.</p>
-      <p class="keys">Keyboard: A/D move &middot; W jump &middot; J shoot &middot; K slam &middot; J+K dance</p>
+      <div class="row">
+        <button id="bJoin" class="ghost">JOIN LOBBY</button>
+      </div>
+      <p class="note" id="nameNote">The story and solo arena runs work offline. Multiplayer needs a HANKY server — open the game from the server itself and the address fills in on its own.</p>
+      <p class="keys">Keyboard: A/D move &middot; W jump &middot; J shoot &middot; K slam &middot; J+K dance &middot; E talk</p>
+    </section>
+
+    <!-- story: pick a chapter -->
+    <section id="scrStory" hidden>
+      <h1>THE STORY</h1>
+      <p class="sub" id="storySub">The first tank that ever stood up.</p>
+      <div id="storyList" class="chapters"></div>
+      <div class="row"><button id="bStoryBack" class="ghost">BACK</button></div>
+      <button id="bStoryReset" class="link">start the story over</button>
+    </section>
+
+    <!-- story: between levels -->
+    <section id="scrChapter" hidden>
+      <h1 id="chTitle">CHAPTER</h1>
+      <p class="sub" id="chSub"></p>
+      <div class="row">
+        <button id="bChNext" class="go">CONTINUE</button>
+      </div>
+      <div class="row">
+        <button id="bChRetry" class="ghost">REPLAY</button>
+        <button id="bChMenu" class="ghost">CHAPTERS</button>
+      </div>
     </section>
 
     <!-- lobby -->
@@ -96,6 +122,7 @@
 
 <script src="game/sim.js"></script>
 <script src="game/render.js"></script>
+<script src="game/story.js"></script>
 <script src="game/input.js"></script>
 <script src="game/net.js"></script>
 <script src="game/main.js"></script>
