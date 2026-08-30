@@ -17,9 +17,14 @@ them — by standing them up. Even Stanky, who keeps trying to put him back in
 the ground.
 
 **STORY** on the front screen plays it: eight levels across four places, with
-tanks to talk to, speech bubbles, and one move the arena does not have —
+tanks to talk to, and one move the arena does not have —
 walking up to a tank you have knocked flat and standing it back on its treads.
 Progress is remembered in the browser, so chapters unlock as you go.
+
+Everything anybody says is drawn in one panel in the middle of the screen,
+always the same place, with the speaker's name on it and a marker over their
+head in the world. Nothing moves during a conversation, so the stick and the
+attack buttons stand aside and leave the text a clear screen.
 
 | | |
 | --- | --- |
@@ -95,7 +100,7 @@ open is dropped. Everything else is the same as a paid instance.
 | Slam | `SLAM` | `K` |
 | Dance | hold `SHOOT` + `SLAM` | `J` + `K` |
 | Talk / stand a tank up | `TALK` (story only, when there is something to talk to) | `E` or `Enter` |
-| Next line of dialogue | tap anywhere | `Space`, `E` or `Enter` |
+| Next line of dialogue | tap anywhere, or `NEXT` | `Space`, `E` or `Enter` |
 | Back out | `CHAPTERS` / `LOBBY` | `Esc` |
 
 ## Installing it
